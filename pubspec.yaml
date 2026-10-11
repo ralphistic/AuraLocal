@@ -1,0 +1,14 @@
+name: auralocal
+description: Offline local audio player prototype
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  just_audio: ^0.9.46
+  file_picker: ^8.3.7
+  audio_session: ^0.1.25
+flutter:
+  uses-material-design: true
