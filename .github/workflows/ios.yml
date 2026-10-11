@@ -1,0 +1,32 @@
+name: Build unsigned iOS IPA
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Generate iOS project
+        run: |
+          flutter create --platforms=ios --project-name auralocal .
+          flutter pub get
+      - name: Enable background audio
+        run: |
+          /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes array' ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes:0 string audio' ios/Runner/Info.plist || true
+      - name: Compile without code signing
+        run: flutter build ios --release --no-codesign
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr AuraLocal-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AuraLocal-unsigned-IPA
+          path: AuraLocal-unsigned.ipa
