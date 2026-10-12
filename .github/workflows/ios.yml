@@ -29,6 +29,8 @@ jobs:
           PY
           ffmpeg -v error -y -i /tmp/auralocal-tone.wav -c:a flac /tmp/auralocal-tone.flac
           swift native/tests/audio_pipeline.swift /tmp/auralocal-tone.flac
+          swiftc native/ios/AuraDspGraph.swift native/tests/production_graph.swift -o /tmp/auralocal-production-graph
+          /tmp/auralocal-production-graph /tmp/auralocal-tone.flac
       - name: Generate iOS project and dependencies
         run: |
           flutter create --platforms=ios --project-name auralocal .
