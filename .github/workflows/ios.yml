@@ -2,6 +2,9 @@ name: Build unsigned iOS IPA
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'lib/web_preview.dart'
+      - '.github/workflows/web-preview.yml'
   workflow_dispatch:
 permissions:
   contents: write
