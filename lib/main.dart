@@ -776,17 +776,105 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     });
   }
 
+
   void chooseEQPreset(String name, StateSetter refresh) {
-    final values = eqPresets[name];
+    final values = eqPresets[name] ?? customEqPresets[name];
     if (values == null) return;
+    eqDebounce?.cancel();
     refresh(() {
       eqPreset = name;
+      eqEnabled = true;
       for (var i = 0; i < eqGains.length; i++) {
         eqGains[i] = values[i];
       }
     });
     setState(() {});
     applyNativeEQ();
+  }
+
+  Future<void> saveCurrentEQPreset(StateSetter refresh) async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Save custom EQ preset'),
+        content: TextField(
+          controller: controller,
+          maxLength: 40,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Preset name'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || name == null || name.isEmpty) return;
+    if (eqPresets.containsKey(name)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose a different name from the built-in presets.')));
+      return;
+    }
+    if (customEqPresets.containsKey(name)) {
+      final replaceExisting = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Replace "$name"?'),
+          content: const Text('Overwrite the saved settings for this preset?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Replace')),
+          ],
+        ),
+      );
+      if (replaceExisting != true || !mounted) return;
+    }
+    refresh(() {
+      customEqPresets[name] = List<double>.of(eqGains);
+      eqPreset = name;
+    });
+    await saveLibrary();
+  }
+
+  Future<void> deleteCustomEQPreset(String name, StateSetter refresh) async {
+    if (!customEqPresets.containsKey(name)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete "$name"?'),
+        content: const Text('This will delete the saved preset, not your current EQ adjustments.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    refresh(() {
+      customEqPresets.remove(name);
+      if (eqPreset == name) eqPreset = 'Custom';
+    });
+    await saveLibrary();
+  }
+
+  void setManualEQBand(int index, double gain, StateSetter refresh) {
+    final adjusted = (gain * 2).round() / 2.0;
+    if (eqGains[index] == adjusted && eqEnabled) return;
+    refresh(() {
+      eqGains[index] = adjusted.clamp(-12.0, 12.0);
+      eqPreset = 'Custom';
+      // Editing any slider should immediately affect the sound.
+      eqEnabled = true;
+    });
+    scheduleEQUpdate();
   }
 
   void showEqualizer() {
@@ -797,16 +885,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, refresh) {
-          final accent = activeEqAccent;
+          const accent = activeEqAccent;
           final screenHeight = MediaQuery.sizeOf(sheetContext).height;
           return SafeArea(
             child: SizedBox(
-              height: screenHeight * 0.76,
+              height: screenHeight * 0.80,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 2, 14, 10),
+                padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
                 child: Column(children: [
                   Row(children: [
-                    Icon(Icons.equalizer, color: accent, size: 27),
+                    const Icon(Icons.equalizer, color: accent, size: 27),
                     const SizedBox(width: 12),
                     const Expanded(child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -822,136 +910,97 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       activeColor: accent,
                       onChanged: (enabled) {
                         refresh(() => eqEnabled = enabled);
-                        setState(() {});
                         applyNativeEQ();
                       },
                     ),
                   ]),
-                  const SizedBox(height: 16),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(children: [
-                      for (final name in eqPresets.keys) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(right: 7),
-                          child: ChoiceChip(
-                            label: Text(name),
-                            selected: eqPreset == name,
-                            selectedColor: accent.withValues(alpha: 0.25),
-                            onSelected: (_) => chooseEQPreset(name, refresh),
-                          ),
-                        ),
-                      ],
-                      ChoiceChip(
-                        label: const Text('Custom'),
-                        selected: eqPreset == 'Custom',
-                        selectedColor: accent.withValues(alpha: 0.25),
-                        onSelected: (_) => refresh(() => eqPreset = 'Custom'),
-                      ),
-                    ]),
-                  ),
                   const SizedBox(height: 14),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, limits) => Stack(children: [
-                        Positioned.fill(child: CustomPaint(
-                          painter: EqGridPainter(accent: accent),
-                        )),
-                        Row(crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (var i = 0; i < 10; i++)
-                              Expanded(child: Column(children: [
-                                Text(
-                                  '${eqGains[i] >= 0 ? '+' : ''}${eqGains[i].toStringAsFixed(1)}',
-                                  maxLines: 1,
-                                  style: TextStyle(fontSize: 9.2,
-                                    fontWeight: FontWeight.w600,
-                                    color: accent),
-                                ),
-                                Expanded(child: RotatedBox(
-                                  quarterTurns: 3,
-                                  child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 3.5,
-                                      activeTrackColor: accent,
-                                      inactiveTrackColor: Colors.white24,
-                                      thumbColor: accent,
-                                      overlayColor: accent.withValues(alpha: 0.15),
-                                    ),
-                                    child: Slider(
-                                      min: -12, max: 12,
-                                      divisions: 48,
-                                      value: eqGains[i],
-                                      onChanged: (v) {
-                                        refresh(() {
-                                          eqGains[i] = v;
-                                          eqPreset = 'Custom';
-                                        });
-                                        scheduleEQUpdate();
-                                      },
-                                      onChangeEnd: (_) => applyNativeEQ(),
-                                    ),
-                                  ),
-                                )),
-                                const SizedBox(height: 4),
-                                FittedBox(child: Text(eqFrequencies[i],
-                                  style: const TextStyle(fontSize: 10.5,
-                                    color: Colors.white70))),
-                              ])),
-                          ]),
-                      ]),
+                  SizedBox(
+                    height: 46,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final name in eqPresets.keys)
+                          Padding(padding: const EdgeInsets.only(right: 7),
+                            child: ChoiceChip(
+                              label: Text(name),
+                              selected: eqPreset == name,
+                              selectedColor: accent.withValues(alpha: 0.25),
+                              onSelected: (_) => chooseEQPreset(name, refresh),
+                            )),
+                        for (final name in customEqPresets.keys)
+                          Padding(padding: const EdgeInsets.only(right: 7),
+                            child: InputChip(
+                              label: Text(name),
+                              selected: eqPreset == name,
+                              selectedColor: accent.withValues(alpha: 0.25),
+                              onPressed: () => chooseEQPreset(name, refresh),
+                              deleteIcon: const Icon(Icons.close, size: 17),
+                              onDeleted: () => deleteCustomEQPreset(name, refresh),
+                              deleteButtonTooltipMessage: 'Delete $name',
+                            )),
+                        if (eqPreset == 'Custom')
+                          const Padding(
+                            padding: EdgeInsets.only(right: 8),
+                            child: Chip(label: Text('Custom (unsaved)')),
+                          ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  const Align(alignment: Alignment.centerLeft,
-                    child: Text('Appearance', style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.white70))),
-                  const SizedBox(height: 7),
-                  SizedBox(height: 38,
-                    child: ListView(scrollDirection: Axis.horizontal, children: [
-                      for (final name in eqAccentColors.keys)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: Tooltip(
-                            message: name,
-                            child: InkWell(
-                              onTap: () {
-                                refresh(() => eqAccent = name);
-                                saveLibrary();
-                              },
-                              customBorder: const CircleBorder(),
-                              child: CircleAvatar(
-                                radius: 16,
-                                backgroundColor: eqAccentColors[name],
-                                child: eqAccent == name
-                                  ? const Icon(Icons.check, size: 18, color: Colors.black87)
-                                  : null,
-                              ),
-                            ),
-                          ),
-                        ),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: Stack(children: [
+                      Positioned.fill(child: CustomPaint(
+                        painter: const EqGridPainter(accent: accent),
+                      )),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var i = 0; i < 10; i++)
+                            Expanded(child: EqBandControl(
+                              key: ValueKey('eq-band-$i'),
+                              label: eqFrequencies[i],
+                              gain: eqGains[i],
+                              accent: accent,
+                              onChanged: (value) => setManualEQBand(i, value, refresh),
+                              onChangeEnd: () => applyNativeEQ(),
+                            )),
+                        ],
+                      ),
                     ]),
                   ),
-                  const SizedBox(height: 6),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => saveCurrentEQPreset(refresh),
+                        icon: const Icon(Icons.bookmark_add_outlined),
+                        label: const Text('Save as preset'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => chooseEQPreset('Flat', refresh),
+                      icon: const Icon(Icons.restart_alt),
+                      label: const Text('Reset'),
+                    ),
+                  ]),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      Text(eqEnabled ? 'EQ enabled' : 'EQ bypassed',
+                        style: const TextStyle(color: Colors.white70)),
                       TextButton.icon(
                         onPressed: () {
-                          refresh(() {
-                            eqEnabled = false;
-                          });
-                          setState(() {});
+                          refresh(() => eqEnabled = !eqEnabled);
                           applyNativeEQ();
                         },
-                        icon: const Icon(Icons.power_settings_new),
-                        label: const Text('Bypass'),
+                        icon: Icon(eqEnabled ? Icons.toggle_on : Icons.toggle_off),
+                        label: Text(eqEnabled ? 'Bypass EQ' : 'Enable EQ'),
                       ),
-                      TextButton.icon(
-                        onPressed: () => chooseEQPreset('Flat', refresh),
-                        icon: const Icon(Icons.restart_alt),
-                        label: const Text('Reset bands'),
-                      ),
-                    ]),
+                    ],
+                  ),
                 ]),
               ),
             ),
@@ -1399,4 +1448,103 @@ class EqGridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant EqGridPainter old) => old.accent != accent;
+}
+
+class EqBandControl extends StatelessWidget {
+  final String label;
+  final double gain;
+  final Color accent;
+  final ValueChanged<double> onChanged;
+  final VoidCallback onChangeEnd;
+  const EqBandControl({super.key, required this.label,
+    required this.gain, required this.accent,
+    required this.onChanged, required this.onChangeEnd});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      const top = 25.0;
+      const bottom = 22.0;
+      final height = math.max(20.0, constraints.maxHeight - top - bottom);
+      void setAt(Offset global) {
+        final local = (context.findRenderObject() as RenderBox).globalToLocal(global);
+        final percentage = ((local.dy - top) / height).clamp(0.0, 1.0).toDouble();
+        // Screen top: +12dB; center: 0dB; bottom: -12dB.
+        onChanged(12.0 - percentage * 24.0);
+      }
+
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (details) {
+          setAt(details.globalPosition);
+          onChangeEnd();
+        },
+        onVerticalDragStart: (details) => setAt(details.globalPosition),
+        onVerticalDragUpdate: (details) => setAt(details.globalPosition),
+        onVerticalDragEnd: (_) => onChangeEnd(),
+        onVerticalDragCancel: onChangeEnd,
+        child: Stack(children: [
+          Positioned(
+            left: 0, right: 0, top: 1,
+            child: Center(child: Text(
+              '${gain >= 0 ? '+' : ''}${gain.toStringAsFixed(1)}',
+              style: TextStyle(fontSize: 9.0, fontWeight: FontWeight.w700,
+                color: accent),
+            )),
+          ),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: EqBandTrackPainter(
+                gain: gain, accent: accent,
+                top: top, bottom: bottom,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0, right: 0, bottom: 0,
+            child: Center(child: Text(label,
+              style: const TextStyle(fontSize: 10, color: Colors.white70))),
+          ),
+        ]),
+      );
+    });
+  }
+}
+
+class EqBandTrackPainter extends CustomPainter {
+  final double gain;
+  final Color accent;
+  final double top;
+  final double bottom;
+  const EqBandTrackPainter({required this.gain, required this.accent,
+    required this.top, required this.bottom});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final middleX = size.width / 2;
+    final trackBottom = size.height - bottom;
+    final travel = math.max(1.0, trackBottom - top);
+    final thumbY = top + (12.0 - gain) / 24.0 * travel;
+    final zeroY = top + travel / 2;
+    final base = Paint()
+      ..color = Colors.white24
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(middleX, top),
+      Offset(middleX, trackBottom), base);
+    final selected = Paint()
+      ..color = accent
+      ..strokeWidth = 4.0
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(middleX, zeroY),
+      Offset(middleX, thumbY), selected);
+    final ring = Paint()..color = const Color(0xFF161B26);
+    canvas.drawCircle(Offset(middleX, thumbY), 8, ring);
+    canvas.drawCircle(Offset(middleX, thumbY), 6,
+      Paint()..color = accent);
+  }
+
+  @override
+  bool shouldRepaint(covariant EqBandTrackPainter old) =>
+    old.gain != gain || old.accent != accent;
 }
