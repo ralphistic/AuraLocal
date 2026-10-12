@@ -101,6 +101,27 @@ final class AuraPitchBridge {
                         "finished": self.graph.finished,
                         "waveform": self.graph.waveform()
                     ] as [String: Any])
+                case "exportBackup":
+                    guard let args = call.arguments as? [String: Any],
+                          let path = args["path"] as? String,
+                          FileManager.default.fileExists(atPath: path) else {
+                        throw self.argumentError("Backup archive is not available")
+                    }
+                    DispatchQueue.main.async {
+                        let url = URL(fileURLWithPath: path)
+                        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+                        guard let root = UIApplication.shared.connectedScenes
+                            .compactMap({ $0 as? UIWindowScene })
+                            .flatMap({ $0.windows })
+                            .first(where: { $0.isKeyWindow })?.rootViewController else {
+                            result(FlutterError(code: "BACKUP", message: "No active iOS window", details: nil))
+                            return
+                        }
+                        var presenter = root
+                        while let next = presenter.presentedViewController { presenter = next }
+                        presenter.present(picker, animated: true)
+                        result(true)
+                    }
                 case "probeDurations":
                     guard let args = call.arguments as? [String: Any],
                           let paths = args["paths"] as? [String] else {
