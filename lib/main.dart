@@ -513,7 +513,7 @@ class _MusicPageState extends State<MusicPage> {
               leading: Icon(i == player.currentIndex ? Icons.graphic_eq : Icons.music_note),
               title: Text(displayName(files[i]), maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: i == player.currentIndex ? const Text('Now playing') : null,
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(sheetContext);
                 await selectAndPlayTrack(i);
               },
