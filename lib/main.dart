@@ -102,6 +102,7 @@ class _MusicPageState extends State<MusicPage> {
       nativePitchPreview = true;
       if (mounted) setState(() => error = null);
     } on PlatformException catch (e) {
+      try { await nativeDsp.invokeMethod('stopFile'); } catch (_) {}
       nativePitchPreview = false;
       if (wasPlaying) await player.play();
       if (mounted) setState(() => error = 'Native preview unavailable for this track: ${e.message}');
@@ -113,7 +114,7 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   Future<void> stopNativePitchPreview() async {
-    try { await nativeDsp.invokeMethod('stopFile'); } on PlatformException catch (_) {}
+    try { await nativeDsp.invokeMethod('stopFile'); } catch (_) {}
     nativePitchPreview = false;
     await player.play();
     if (mounted) setState(() {});
