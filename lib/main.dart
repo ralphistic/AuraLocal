@@ -143,7 +143,14 @@ class _MusicPageState extends State<MusicPage> {
     super.initState();
     AudioSession.instance.then((s) => s.configure(const AudioSessionConfiguration.music()));
     restoreLibrary();
-    player.playerStateStream.listen((_) { if (mounted) setState(() {}); });
+    player.playerStateStream.listen((_) {
+      // Never permit both output engines to remain active.
+      if (player.playing && nativePitchPreview) {
+        nativeDsp.invokeMethod('stopFile');
+        nativePitchPreview = false;
+      }
+      if (mounted) setState(() {});
+    });
     player.currentIndexStream.listen((_) { if (nativePitchPreview) { nativeDsp.invokeMethod('stopFile'); nativePitchPreview = false; } if (mounted) setState(() {}); });
     player.positionStream.listen((_) { if (mounted && !draggingPlayer && !libraryHome) setState(() {}); });
     player.durationStream.listen((_) { if (mounted) setState(() {}); });
@@ -326,6 +333,17 @@ class _MusicPageState extends State<MusicPage> {
       )));
   }
 
+  Future<void> selectAndPlayTrack(int index) async {
+    // Stop the other engine BEFORE changing AVPlayer's track.
+    if (nativePitchPreview) {
+      await nativeDsp.invokeMethod('stopFile');
+      nativePitchPreview = false;
+    }
+    await player.pause();
+    await player.seek(Duration.zero, index: index);
+    await player.play();
+  }
+
   Future<void> skipTrack(int delta) async {
     if (files.isEmpty) return;
     if (nativePitchPreview) { await nativeDsp.invokeMethod('stopFile'); nativePitchPreview = false; }
@@ -335,8 +353,7 @@ class _MusicPageState extends State<MusicPage> {
       return;
     }
     final target = (current + delta + files.length) % files.length;
-    await player.seek(Duration.zero, index: target);
-    if (!player.playing) await player.play();
+    await selectAndPlayTrack(target);
   }
 
   Future<void> seekSeconds(int seconds) async {
@@ -498,8 +515,7 @@ class _MusicPageState extends State<MusicPage> {
               subtitle: i == player.currentIndex ? const Text('Now playing') : null,
               onTap: () {
                 Navigator.pop(sheetContext);
-                player.seek(Duration.zero, index: i);
-                player.play();
+                await selectAndPlayTrack(i);
               },
               trailing: ReorderableDragStartListener(index: i,
                 child: const Icon(Icons.drag_handle, color: Colors.white70)),
@@ -576,8 +592,7 @@ class _MusicPageState extends State<MusicPage> {
                     subtitle: Text(i == player.currentIndex ? 'Now playing' : 'Local audio', style: const TextStyle(color: Colors.white60)),
                     trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert, color: Colors.white70), onPressed: () => trackMenu(files[i])),
                     onTap: () async {
-                      await player.seek(Duration.zero, index: i);
-                      player.play();
+                      await selectAndPlayTrack(i);
                       if (mounted) setState(() => libraryHome = false);
                     },
                   );
