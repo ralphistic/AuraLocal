@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:archive/archive_io.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -39,9 +40,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final files = <String>[];
   final originalNames = <String, String>{};
   final eqGains = List<double>.filled(10, 0);
+  final customEqPresets = <String, List<double>>{};
   bool eqEnabled = false;
   String eqPreset = 'Flat';
-  String eqAccent = 'Mint';
   static const eqFrequencies = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
   static const eqPresets = <String, List<double>>{
     'Flat': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -52,14 +53,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     'V-shaped': [4, 3, 1, -1, -2, -1, 1, 3, 4, 3],
     'Soft': [1, 1, 0, 0, 0, -1, -2, -2, -2, -1],
   };
-  static const eqAccentColors = <String, Color>{
-    'Mint': Color(0xFF9BE9C6),
-    'Violet': Color(0xFFC5A3FF),
-    'Coral': Color(0xFFFF9B91),
-    'Ice': Color(0xFF8DD8FF),
-    'Gold': Color(0xFFFFD18A),
-  };
-  Color get activeEqAccent => eqAccentColors[eqAccent] ?? const Color(0xFF9BE9C6);
+  static const Color activeEqAccent = Color(0xFF9BE9C6);
   Timer? eqDebounce;
   final favorites = <String>{};
   final playlists = <String, List<String>>{};
@@ -70,6 +64,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   bool libraryHome = true;
   bool favoritesOnly = false;
   bool sortAscending = true;
+  String sortMode = 'alphabetical';
+  final dateAdded = <String, int>{};
+  final trackDurations = <String, double>{};
+  bool isLibraryExporting = false;
+  bool isLibraryRestoring = false;
   String query = '';
   int repeat = 0;
   bool shuffle = false;
@@ -190,7 +189,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones,
       'originalNames': originalNames,
       'eqGains': eqGains, 'eqEnabled': eqEnabled,
-      'eqPreset': eqPreset, 'eqAccent': eqAccent,
+      'eqPreset': eqPreset, 'customEqPresets': customEqPresets,
+      'sortMode': sortMode, 'sortAscending': sortAscending,
+      'dateAdded': dateAdded, 'trackDurations': trackDurations,
     }));
   }
 
@@ -246,9 +247,31 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           eqEnabled = decoded['eqEnabled'] == true;
           final rememberedPreset = decoded['eqPreset'];
           if (rememberedPreset is String) eqPreset = rememberedPreset;
-          final rememberedAccent = decoded['eqAccent'];
-          if (rememberedAccent is String && eqAccentColors.containsKey(rememberedAccent)) {
-            eqAccent = rememberedAccent;
+          final custom = decoded['customEqPresets'];
+          if (custom is Map) {
+            custom.forEach((name, gains) {
+              if (name is String && gains is List && gains.length == 10 &&
+                  gains.every((v) => v is num)) {
+                customEqPresets[name] = gains
+                  .map((v) => (v as num).toDouble().clamp(-12.0, 12.0).toDouble())
+                  .toList();
+              }
+            });
+          }
+          final storedMode = decoded['sortMode'];
+          if (storedMode is String && ['alphabetical', 'dateAdded', 'length'].contains(storedMode)) {
+            sortMode = storedMode;
+          }
+          if (decoded['sortAscending'] is bool) sortAscending = decoded['sortAscending'] as bool;
+          if (decoded['dateAdded'] is Map) {
+            (decoded['dateAdded'] as Map).forEach((path, value) {
+              if (path is String && value is num) dateAdded[path] = value.toInt();
+            });
+          }
+          if (decoded['trackDurations'] is Map) {
+            (decoded['trackDurations'] as Map).forEach((path, value) {
+              if (path is String && value is num) trackDurations[path] = value.toDouble();
+            });
           }
           if (decoded['originalNames'] is Map) {
             (decoded['originalNames'] as Map).forEach((path, name) {
@@ -262,7 +285,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }
         }
         for (final path in saved) {
-          if (await File(path).exists()) files.add(path);
+          if (await File(path).exists()) {
+            files.add(path);
+            dateAdded.putIfAbsent(path, () => File(path).lastModifiedSync().millisecondsSinceEpoch);
+          }
         }
         // Restore old 'GBA_1' imports when the original 'GBA' also exists.
         for (final path in files) {
@@ -282,6 +308,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       await updateNativePitchTempo();
       await applyNativeEQ();
       if (mounted) setState(() {});
+      // Metadata probing never plays or interrupts a track.
+      await loadMissingDurations();
     } catch (e) {
       if (mounted) setState(() => error = 'Could not restore library: $e');
     }
@@ -345,12 +373,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         }
         await source.copy(target.path);
         originalNames[target.path] = originalName;
+        dateAdded[target.path] = DateTime.now().millisecondsSinceEpoch;
         files.add(target.path);
         imported++;
       }
       if (imported == 0 && skipped == 0) throw Exception('No accessible audio files returned');
       if (imported > 0) await syncQueue();
       await saveLibrary();
+      if (imported > 0) await loadMissingDurations();
       if (mounted) {
         setState(() => error = null);
         if (skipped > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1002,14 +1032,63 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       )));
   }
 
+
+  Future<void> loadMissingDurations() async {
+    final missing = files.where((p) => !trackDurations.containsKey(p)).toList();
+    if (missing.isEmpty) return;
+    try {
+      // Native AVAudioFile provides durations without starting another player.
+      for (var i = 0; i < missing.length; i += 24) {
+        final batch = missing.skip(i).take(24).toList();
+        final response = await nativeDsp.invokeListMethod<double>('probeDurations', {'paths': batch});
+        if (response == null || response.length != batch.length) continue;
+        for (var k = 0; k < batch.length; k++) {
+          if (response[k].isFinite && response[k] >= 0) {
+            trackDurations[batch[k]] = response[k];
+          }
+        }
+      }
+      await saveLibrary();
+      if (mounted) setState(() {});
+    } catch (_) {
+      // Older build or an unreadable format: leave its length unknown.
+    }
+  }
+
+  void chooseLibrarySort(String value) {
+    setState(() {
+      if (sortMode == value) {
+        sortAscending = !sortAscending;
+      } else {
+        sortMode = value;
+        sortAscending = value != 'dateAdded';
+      }
+    });
+    saveLibrary();
+    if (value == 'length') loadMissingDurations();
+  }
+
   Widget buildLibrary() {
     final matches = List<int>.generate(files.length, (i) => i).where((i) =>
       (activePlaylist == null || (playlists[activePlaylist]?.contains(files[i]) ?? false)) &&
       (!favoritesOnly || favorites.contains(files[i])) &&
       displayName(files[i]).toLowerCase().contains(query.toLowerCase())).toList()
-      ..sort((a, b) => sortAscending
-          ? displayName(files[a]).toLowerCase().compareTo(displayName(files[b]).toLowerCase())
-          : displayName(files[b]).toLowerCase().compareTo(displayName(files[a]).toLowerCase()));
+      ..sort((a, b) {
+        int comparison;
+        switch (sortMode) {
+          case 'dateAdded':
+            comparison = (dateAdded[files[a]] ?? 0).compareTo(dateAdded[files[b]] ?? 0);
+            break;
+          case 'length':
+            comparison = (trackDurations[files[a]] ?? -1).compareTo(trackDurations[files[b]] ?? -1);
+            break;
+          default:
+            comparison = displayName(files[a]).toLowerCase()
+                .compareTo(displayName(files[b]).toLowerCase());
+        }
+        if (comparison == 0) comparison = a.compareTo(b);
+        return sortAscending ? comparison : -comparison;
+      });
     return Scaffold(
       appBar: AppBar(title: const Text('Your Library'), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add), onPressed: createPlaylist),
@@ -1039,9 +1118,26 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ChoiceChip(label: const Text('Favorites'), selected: favoritesOnly,
             onSelected: (_) => setState(() => favoritesOnly = true)),
           const Spacer(),
-          IconButton(tooltip: 'Change sort order',
-            icon: Icon(sortAscending ? Icons.sort_by_alpha : Icons.sort),
-            onPressed: () => setState(() => sortAscending = !sortAscending)),
+          PopupMenuButton<String>(
+            tooltip: 'Sort tracks',
+            icon: const Icon(Icons.filter_list),
+            onSelected: chooseLibrarySort,
+            itemBuilder: (_) => [
+              for (final item in [
+                ('alphabetical', 'Alphabetical order'),
+                ('dateAdded', 'Date added'),
+                ('length', 'Track length'),
+              ]) PopupMenuItem<String>(
+                value: item.$1,
+                child: Row(children: [
+                  Expanded(child: Text(item.$2)),
+                  if (sortMode == item.$1)
+                    Icon(sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 18, color: activeEqAccent),
+                ]),
+              ),
+            ],
+          ),
         ])),
         Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6),
           child: Align(alignment: Alignment.centerLeft,
@@ -1056,7 +1152,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               return ListTile(
                 leading: const Icon(Icons.music_note, color: Colors.tealAccent),
                 title: Text(displayName(files[index]), maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(index == currentIndex ? 'Now playing' : 'Local audio',
+                subtitle: Text(
+                  index == currentIndex ? 'Now playing'
+                      : trackDurations.containsKey(files[index])
+                        ? clock(trackDurations[files[index]]!)
+                        : 'Local audio',
                   style: const TextStyle(color: Colors.white60)),
                 trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert),
                   onPressed: () => trackMenu(files[index])),
