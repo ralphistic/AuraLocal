@@ -29,13 +29,12 @@ enum AuraStretchRenderer {
         }
         defer { auraStretchDestroy(state) }
         let key = "\(source.path.hashValue)_\(file.length)_\(Int(tempo * 10000))_\(Int(cents))"
-        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("aura-stretch-\(key).caf")
+        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("aura-stretch-\(key).wav")
         if FileManager.default.fileExists(atPath: outputURL.path) { return outputURL }
         let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
                                          channels: AVAudioChannelCount(channels), interleaved: false)!
         NSLog("AuraStretch: creating output %@ settings %@", outputURL.path, String(describing: outputFormat.settings))
-        let outputFile = try AVAudioFile(forWriting: outputURL, settings: outputFormat.settings,
-                                         commonFormat: .pcmFormatFloat32, interleaved: false)
+        let outputFile = try AVAudioFile(forWriting: outputURL, settings: outputFormat.settings)
         let chunk = 4096
         let inputBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(chunk))!
         let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(16384))!
