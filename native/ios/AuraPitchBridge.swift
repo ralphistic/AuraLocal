@@ -25,6 +25,19 @@ final class AuraPitchBridge {
                     self.graph.stopPlayback()
                     self.playingNative = false
                     result(true)
+                case "pauseFile":
+                    self.graph.pausePlayback()
+                    result(true)
+                case "resumeFile":
+                    self.graph.resumePlayback()
+                    result(true)
+                case "seekFile":
+                    let seconds = (call.arguments as? [String: Any])?["position"] as? NSNumber
+                    guard let seconds else { result(FlutterError(code: "ARGUMENT", message: "Missing position", details: nil)); return }
+                    try self.graph.seekPlayback(to: seconds.doubleValue)
+                    result(true)
+                case "getPosition":
+                    result(self.graph.positionSeconds)
                 case "setTimePitch":
                     guard let args = call.arguments as? [String: Any],
                           let tempo = (args["tempo"] as? NSNumber)?.floatValue,
