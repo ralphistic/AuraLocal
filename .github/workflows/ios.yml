@@ -56,14 +56,17 @@ jobs:
           from pathlib import Path
           p = Path('ios/Runner/AppDelegate.swift')
           data = p.read_text()
-          # Register from didFinishLaunching regardless of generated Flutter template layout.
+          # Flutter's generated template may use implicit plugin registration.
+          # Insert directly after the didFinishLaunching method declaration.
           import re
           data = data.replace('import UIKit', 'import UIKit\\nimport Flutter')
           data = data.replace('class AppDelegate: FlutterAppDelegate {', 'class AppDelegate: FlutterAppDelegate {\\n  private var pitchBridge: AuraPitchBridge?')
-          match = re.search(r'(\\s*GeneratedPluginRegistrant\\.register\\(with:\\s*self\\))', data)
+          pattern = r'(override func application\\([\\s\\S]*?didFinishLaunchingWithOptions[\\s\\S]*?\\)\\s*->\\s*Bool\\s*\\{)'
+          match = re.search(pattern, data)
           if not match:
-              raise RuntimeError('Cannot locate Flutter plugin registration in AppDelegate')
-          data = data[:match.end()] + '\\n    if let controller = window?.rootViewController as? FlutterViewController {\\n      pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)\\n    }' + data[match.end():]
+              raise RuntimeError('Cannot locate didFinishLaunching method')
+          injection = '\\n    if let controller = window?.rootViewController as? FlutterViewController {\\n      pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)\\n    }'
+          data = data[:match.end()] + injection + data[match.end():]
           p.write_text(data)
           PY
       - name: Enable background audio
