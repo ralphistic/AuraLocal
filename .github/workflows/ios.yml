@@ -25,6 +25,7 @@ jobs:
         run: |
           test -f native/ios/AuraDspGraph.swift
           cp native/ios/AuraDspGraph.swift ios/Runner/AuraDspGraph.swift
+          cp native/ios/AuraPitchBridge.swift ios/Runner/AuraPitchBridge.swift
           python3 - <<'PY'
           from pathlib import Path
           p = Path('ios/Runner.xcodeproj/project.pbxproj')
@@ -41,12 +42,26 @@ jobs:
           abort 'Runner target not found' unless target
           group = project.main_group.find_subpath('Runner', false)
           abort 'Runner group not found' unless group
-          reference = group.files.find { |f| f.path == 'AuraDspGraph.swift' } || group.new_file('AuraDspGraph.swift')
-          unless target.source_build_phase.files_references.include?(reference)
-            target.source_build_phase.add_file_reference(reference)
+          ['AuraDspGraph.swift', 'AuraPitchBridge.swift'].each do |name|
+            reference = group.files.find { |f| f.path == name } || group.new_file(name)
+            unless target.source_build_phase.files_references.include?(reference)
+              target.source_build_phase.add_file_reference(reference)
+            end
           end
           project.save
           RUBY
+      - name: Register native pitch channel
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ios/Runner/AppDelegate.swift')
+          data = p.read_text()
+          needle = '    GeneratedPluginRegistrant.register(with: self)'
+          assert needle in data, 'AppDelegate registration hook missing'
+          data = data.replace('class AppDelegate: FlutterAppDelegate {', 'class AppDelegate: FlutterAppDelegate {\\n  private var pitchBridge: AuraPitchBridge?')
+          data = data.replace(needle, needle + '\\n    if let controller = window?.rootViewController as? FlutterViewController {\\n      pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)\\n    }')
+          p.write_text(data)
+          PY
       - name: Enable background audio
         run: |
           /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes array' ios/Runner/Info.plist || true
