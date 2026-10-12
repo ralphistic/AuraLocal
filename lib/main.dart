@@ -74,11 +74,12 @@ class _MusicPageState extends State<MusicPage> {
   bool sortAscending = true;
   double playbackSpeed = 1.0;
   double pitchCents = 0.0;
+  int pitchSemitones = 0;
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
 
   Future<void> updateNativePitchTempo() async {
     try {
-      await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchCents});
+      await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchSemitones * 100 + pitchCents});
     } on PlatformException catch (e) {
       if (mounted) setState(() => error = 'Native DSP: ${e.message}');
     }
@@ -114,7 +115,7 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
-    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists, 'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed, 'pitchCents': pitchCents}));
+    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists, 'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed, 'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones}));
   }
 
   Future<void> loadPlaylist({bool autoplay = false}) async {
@@ -149,8 +150,10 @@ class _MusicPageState extends State<MusicPage> {
         shuffle = decoded['shuffle'] == true;
         final savedRepeat = decoded['repeat'];
         if (savedRepeat is int && savedRepeat >= 0 && savedRepeat <= 2) repeat = savedRepeat;
+        final savedSemitones = decoded['pitchSemitones'];
+        if (savedSemitones is int) pitchSemitones = savedSemitones.clamp(-12, 12);
         final savedPitch = decoded['pitchCents'];
-        if (savedPitch is num) pitchCents = savedPitch.toDouble().clamp(-1200.0, 1200.0);
+        if (savedPitch is num) pitchCents = savedPitch.toDouble().clamp(-99.0, 99.0);
         final savedSpeed = decoded['speed'];
         if (savedSpeed is num && [0.75, 1.0, 1.25, 1.5, 2.0].contains(savedSpeed.toDouble())) playbackSpeed = savedSpeed.toDouble();
       }
@@ -566,8 +569,12 @@ class _MusicPageState extends State<MusicPage> {
                 const SizedBox(height: 12),
                 const Text('Native DSP controls are experimental. Playback still uses just_audio; pitch changes are not audible until the audio stream is connected.', textAlign: TextAlign.center),
                 const SizedBox(height: 20),
-                Text('Pitch: ${pitchCents.toStringAsFixed(0)} cents'),
-                Slider(value: pitchCents, min: -1200, max: 1200, divisions: 2400,
+                Text('Semitones: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones'),
+                Slider(value: pitchSemitones.toDouble(), min: -12, max: 12, divisions: 24,
+                  onChanged: (v) { refresh(() => pitchSemitones = v.round()); setState(() {}); },
+                  onChangeEnd: (v) async { await updateNativePitchTempo(); await saveLibrary(); }),
+                Text('Fine pitch: ${pitchCents.toStringAsFixed(0)} cents'),
+                Slider(value: pitchCents, min: -99, max: 99, divisions: 198,
                   onChanged: (v) { refresh(() => pitchCents = v); setState(() {}); },
                   onChangeEnd: (v) async { await updateNativePitchTempo(); await saveLibrary(); }),
                 Text('Tempo: ${(playbackSpeed * 100).toStringAsFixed(0)}%'),
@@ -579,7 +586,7 @@ class _MusicPageState extends State<MusicPage> {
                     await saveLibrary();
                   }),
                 TextButton(onPressed: () async {
-                  refresh(() { pitchCents = 0; playbackSpeed = 1; });
+                  refresh(() { pitchCents = 0; pitchSemitones = 0; playbackSpeed = 1; });
                   setState(() {});
                   await player.setSpeed(1);
                   await updateNativePitchTempo();
