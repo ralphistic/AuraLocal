@@ -70,11 +70,13 @@ enum AuraStretchRenderer {
         while outputWritten < totalOutput {
             var frames = 0
             if !inputFinished {
-                NSLog("AuraStretch: reading FLAC at %lld", file.framePosition)
-                try file.read(into: inputBuffer, frameCount: AVAudioFrameCount(chunk))
-                NSLog("AuraStretch: read %d FLAC frames", inputBuffer.frameLength)
-                frames = Int(inputBuffer.frameLength)
-                if frames == 0 { inputFinished = true }
+                if file.framePosition >= file.length {
+                    inputFinished = true
+                } else {
+                    try file.read(into: inputBuffer, frameCount: AVAudioFrameCount(min(Int64(chunk), file.length - file.framePosition)))
+                    frames = Int(inputBuffer.frameLength)
+                    if frames == 0 { inputFinished = true }
+                }
             }
             if frames == 0 { frames = chunk }
             var input = [Float](repeating: 0, count: frames * channels)
@@ -87,7 +89,6 @@ enum AuraStretchRenderer {
             let outFrames = Int(desired)
             ratioCarry = desired - Double(outFrames)
             var output = [Float](repeating: 0, count: outFrames * channels)
-            NSLog("AuraStretch: processing %d input frames", frames)
             input.withUnsafeBufferPointer { src in
                 output.withUnsafeMutableBufferPointer { dst in
                     auraStretchProcess(state, src.baseAddress, Int32(frames), dst.baseAddress, Int32(outFrames))
