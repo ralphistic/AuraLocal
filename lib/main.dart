@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audio_session/audio_session.dart';
@@ -217,6 +218,62 @@ class _MusicPageState extends State<MusicPage> {
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     }
+  }
+
+  Future<void> showPitchWheel(StateSetter refresh) async {
+    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
+      isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 360,
+        child: Column(children: [
+          Row(children: [
+            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
+            const Expanded(child: Text('Adjust Pitch', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            const SizedBox(width: 48),
+          ]),
+          const Row(children: [
+            Expanded(child: Center(child: Text('Semitones'))),
+            Expanded(child: Center(child: Text('Cents'))),
+          ]),
+          Expanded(child: Row(children: [
+            Expanded(child: CupertinoPicker(
+              scrollController: FixedExtentScrollController(initialItem: pitchSemitones + 12),
+              itemExtent: 44, onSelectedItemChanged: (i) {
+                refresh(() => pitchSemitones = i - 12);
+                updateNativePitchTempo(); saveLibrary();
+              }, children: [for (var i = -12; i <= 12; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
+            )),
+            Expanded(child: CupertinoPicker(
+              scrollController: FixedExtentScrollController(initialItem: pitchCents.round() + 99),
+              itemExtent: 44, onSelectedItemChanged: (i) {
+                refresh(() => pitchCents = (i - 99).toDouble());
+                updateNativePitchTempo(); saveLibrary();
+              }, children: [for (var i = -99; i <= 99; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
+            )),
+          ])),
+        ]),
+      )));
+  }
+
+  Future<void> showTempoWheel(StateSetter refresh) async {
+    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
+      isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 360,
+        child: Column(children: [
+          Row(children: [
+            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
+            const Expanded(child: Text('Adjust Tempo', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            const SizedBox(width: 48),
+          ]),
+          Expanded(child: CupertinoPicker(
+            scrollController: FixedExtentScrollController(initialItem: (playbackSpeed * 100).round() - 50),
+            itemExtent: 44, onSelectedItemChanged: (i) async {
+              final value = (i + 50) / 100.0;
+              refresh(() => playbackSpeed = value);
+              await player.setSpeed(value);
+              await updateNativePitchTempo();
+              await saveLibrary();
+            }, children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))],
+          )),
+        ]),
+      )));
   }
 
   Future<void> skipTrack(int delta) async {
@@ -569,6 +626,7 @@ class _MusicPageState extends State<MusicPage> {
                 const SizedBox(height: 12),
                 const Text('Native DSP controls are experimental. Playback still uses just_audio; pitch changes are not audible until the audio stream is connected.', textAlign: TextAlign.center),
                 const SizedBox(height: 20),
+                TextButton(onPressed: () => showPitchWheel(refresh), child: Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones, ${pitchCents.toStringAsFixed(0)} cents')),
                 Text('Semitones: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones'),
                 Slider(value: pitchSemitones.toDouble(), min: -12, max: 12, divisions: 24,
                   onChanged: (v) { refresh(() => pitchSemitones = v.round()); setState(() {}); },
@@ -577,7 +635,7 @@ class _MusicPageState extends State<MusicPage> {
                 Slider(value: pitchCents, min: -99, max: 99, divisions: 198,
                   onChanged: (v) { refresh(() => pitchCents = v); setState(() {}); },
                   onChangeEnd: (v) async { await updateNativePitchTempo(); await saveLibrary(); }),
-                Text('Tempo: ${(playbackSpeed * 100).toStringAsFixed(0)}%'),
+                TextButton(onPressed: () => showTempoWheel(refresh), child: Text('Tempo: ${(playbackSpeed * 100).toStringAsFixed(0)}%')),
                 Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
                   onChanged: (v) { refresh(() => playbackSpeed = v); setState(() {}); },
                   onChangeEnd: (v) async {
