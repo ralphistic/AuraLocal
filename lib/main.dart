@@ -30,6 +30,8 @@ class _MusicPageState extends State<MusicPage> {
   int repeat = 0;
   bool shuffle = false;
   String? error;
+  bool libraryHome = true;
+  String query = '';
 
   @override
   void initState() {
@@ -152,7 +154,8 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   void showLibrary() {
-    Navigator.of(context).push(MaterialPageRoute<void>(
+    setState(() => libraryHome = true);
+    /* Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (libraryContext) => Scaffold(
         backgroundColor: const Color(0xFF101218),
         appBar: AppBar(title: const Text('Your Library'), backgroundColor: const Color(0xFF101218),
@@ -187,7 +190,7 @@ class _MusicPageState extends State<MusicPage> {
               },
             ),
       ),
-    ));
+    )); */
   }
 
   String get title {
@@ -203,9 +206,63 @@ class _MusicPageState extends State<MusicPage> {
     final length = player.duration ?? Duration.zero;
     final pos = player.position;
     final max = length.inMilliseconds.toDouble().clamp(1.0, double.infinity);
+    if (libraryHome) {
+      final matches = List<int>.generate(files.length, (i) => i).where((i) =>
+        Uri.file(files[i]).pathSegments.last.toLowerCase().contains(query.toLowerCase())).toList();
+      return Scaffold(
+        backgroundColor: const Color(0xFF101218),
+        appBar: AppBar(
+          title: const Text('Your Library'),
+          backgroundColor: const Color(0xFF101218),
+          actions: [IconButton(tooltip: 'Import music', icon: const Icon(Icons.add), onPressed: import)],
+        ),
+        body: SafeArea(child: Column(children: [
+          Padding(padding: const EdgeInsets.all(16),
+            child: TextField(
+              onChanged: (value) => setState(() => query = value),
+              decoration: InputDecoration(
+                hintText: 'Search songs',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+          ),
+          Expanded(child: files.isEmpty
+            ? Center(child: FilledButton.icon(onPressed: import,
+                icon: const Icon(Icons.add), label: const Text('Import your music')))
+            : ListView.builder(
+                itemCount: matches.length,
+                itemBuilder: (_, row) {
+                  final i = matches[row];
+                  return ListTile(
+                    leading: const Icon(Icons.music_note, color: Colors.tealAccent),
+                    title: Text(Uri.file(files[i]).pathSegments.last,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    onTap: () async {
+                      await player.seek(Duration.zero, index: i);
+                      player.play();
+                      if (mounted) setState(() => libraryHome = false);
+                    },
+                  );
+                },
+              )),
+          if (files.isNotEmpty) ListTile(
+            tileColor: const Color(0xFF29483F),
+            leading: const Icon(Icons.graphic_eq, color: Colors.tealAccent),
+            title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: () => setState(() => libraryHome = false),
+            trailing: IconButton(
+              icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
+              onPressed: () => player.playing ? player.pause() : player.play()),
+          ),
+          if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
+        ])),
+      );
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF101218),
-      appBar: AppBar(backgroundColor: Colors.transparent, title: const Text('AURA LOCAL'),
+      appBar: AppBar(backgroundColor: Colors.transparent, title: const Text('Now Playing'),
         actions: [IconButton(tooltip: 'Library', onPressed: showLibrary, icon: const Icon(Icons.library_music)), IconButton(tooltip: 'Import songs', onPressed: import, icon: const Icon(Icons.add_circle_outline))]),
       body: SafeArea(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
         const Spacer(),
