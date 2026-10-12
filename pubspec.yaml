@@ -12,5 +12,6 @@ dependencies:
   audio_session: ^0.1.25
   just_audio_background: ^0.0.1-beta.17
   audio_service: ^0.18.15
+  path_provider: ^2.1.5
 flutter:
   uses-material-design: true
