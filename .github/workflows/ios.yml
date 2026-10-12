@@ -21,6 +21,18 @@ jobs:
           flutter create --platforms=ios --project-name auralocal .
           flutter pub get
           flutter build ios --config-only --release --no-codesign
+      - name: Stage native DSP Swift source for iOS compilation
+        run: |
+          test -f native/ios/AuraDspGraph.swift
+          cp native/ios/AuraDspGraph.swift ios/Runner/AuraDspGraph.swift
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ios/Runner.xcodeproj/project.pbxproj')
+          data = p.read_text()
+          # Flutter-generated Xcode project uses synchronized source groups on modern Xcode.
+          # Swift source is staged for the native target integration pass.
+          print('DSP Swift staged; target integration requires Xcode project membership validation')
+          PY
       - name: Enable background audio
         run: |
           /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes array' ios/Runner/Info.plist || true
