@@ -52,5 +52,20 @@ require("Goertzel" in graph and "analysisQueue" in graph and "spectrumTicker" in
         "Duration(milliseconds: 33)" in dart,
         "Live equalizer-style frequency analyzer with display-vsync smoothing")
 require(dart.count("Slider(value: pitchCents") == 0 and
-        "Adjust pitch in semitones and cents" in dart,
+        "Pitch slider. Tap to open semitone and cent wheels" in dart,
         "Single combined pitch slider opens both picker wheels")
+
+require("timePitch.reset()" in graph and "timePitch.overlap = 8" in graph and
+        "source.volume = Float(step) / 12.0" in graph,
+        "Combined pitch and tempo changes flush the native processor and fade in")
+require("isSameAudio" in dart and "originalNames" in dart and
+        "if (duplicate) continue;" in dart,
+        "Repeated audio imports preserve original track labels")
+require("onPointerUp:" in dart and "pitchTouchMoved" in dart and
+        "onChangeEnd: (_) => updateNativePitchTempo()" in dart,
+        "Pitch slider supports dragging and precision picker tapping")
+require("startMiniSwipe()" in dart and "finishMiniSwipe" in dart and
+        "void showLibrary() => dismissPlayer();" in dart,
+        "Magnetic swipe-up and animated down-arrow dismissal exist")
+require("curve.quadraticBezierTo" in dart and "canvas.drawPath(curve, paint)" in dart,
+        "Live EQ is rendered as a single responsive frequency contour")
