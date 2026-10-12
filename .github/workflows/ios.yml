@@ -56,10 +56,14 @@ jobs:
           from pathlib import Path
           p = Path('ios/Runner/AppDelegate.swift')
           data = p.read_text()
-          needle = '    GeneratedPluginRegistrant.register(with: self)'
-          assert needle in data, 'AppDelegate registration hook missing'
+          # Register from didFinishLaunching regardless of generated Flutter template layout.
+          import re
+          data = data.replace('import UIKit', 'import UIKit\\nimport Flutter')
           data = data.replace('class AppDelegate: FlutterAppDelegate {', 'class AppDelegate: FlutterAppDelegate {\\n  private var pitchBridge: AuraPitchBridge?')
-          data = data.replace(needle, needle + '\\n    if let controller = window?.rootViewController as? FlutterViewController {\\n      pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)\\n    }')
+          match = re.search(r'(\\s*GeneratedPluginRegistrant\\.register\\(with:\\s*self\\))', data)
+          if not match:
+              raise RuntimeError('Cannot locate Flutter plugin registration in AppDelegate')
+          data = data[:match.end()] + '\\n    if let controller = window?.rootViewController as? FlutterViewController {\\n      pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)\\n    }' + data[match.end():]
           p.write_text(data)
           PY
       - name: Enable background audio
