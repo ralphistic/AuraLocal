@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// Isolated DSP graph. Audio decoding and transport are not yet connected.
+/// FLAC playback flows through source -> EQ -> pitch -> system output.
 final class AuraDspGraph {
     let engine = AVAudioEngine()
     let source = AVAudioPlayerNode()
@@ -11,13 +11,18 @@ final class AuraDspGraph {
 
     func playFile(at path: String, positionSeconds: Double = 0) throws {
         try configure()
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: [])
+        try session.setActive(true)
         let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
         source.stop()
         let start = AVAudioFramePosition(max(0, positionSeconds) * file.processingFormat.sampleRate)
         guard start < file.length else { throw NSError(domain: "AuraDSP", code: 3, userInfo: [NSLocalizedDescriptionKey: "Start position exceeds file length"]) }
         activeFile = file
         source.scheduleSegment(file, startingFrame: start, frameCount: AVAudioFrameCount(min(file.length - start, Int64(UInt32.max))), at: nil, completionHandler: nil)
+        if !engine.isRunning { try engine.start() }
         source.play()
+        guard source.isPlaying else { throw NSError(domain: "AuraDSP", code: 4, userInfo: [NSLocalizedDescriptionKey: "Native player failed to start"]) }
     }
 
     func stopPlayback() {
