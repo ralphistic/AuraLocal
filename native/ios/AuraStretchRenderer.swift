@@ -19,7 +19,9 @@ enum AuraStretchRenderer {
             throw NSError(domain: "AuraStretch", code: 1, userInfo: [NSLocalizedDescriptionKey: "Pitch or tempo outside supported range"])
         }
         if abs(tempo - 1) < 0.00001 && abs(cents) < 0.00001 { return source }
+        NSLog("AuraStretch: opening source %@", source.path)
         let file = try AVAudioFile(forReading: source, commonFormat: .pcmFormatFloat32, interleaved: false)
+        NSLog("AuraStretch: source opened, frames=%lld", file.length)
         let channels = Int(file.processingFormat.channelCount)
         let sampleRate = file.processingFormat.sampleRate
         guard let state = auraStretchCreate(Int32(channels), Int32(sampleRate), Float(cents / 100)) else {
@@ -31,6 +33,7 @@ enum AuraStretchRenderer {
         if FileManager.default.fileExists(atPath: outputURL.path) { return outputURL }
         let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
                                          channels: AVAudioChannelCount(channels), interleaved: false)!
+        NSLog("AuraStretch: creating output %@ settings %@", outputURL.path, String(describing: outputFormat.settings))
         let outputFile = try AVAudioFile(forWriting: outputURL, settings: outputFormat.settings,
                                          commonFormat: .pcmFormatFloat32, interleaved: false)
         let chunk = 4096
@@ -72,10 +75,14 @@ enum AuraStretchRenderer {
                     for c in 0..<channels { data[c][f] = output[(f + skip) * channels + c] }
                 }
                 outputBuffer.frameLength = AVAudioFrameCount(available)
-                try outputFile.write(from: outputBuffer)
+                do { try outputFile.write(from: outputBuffer) } catch {
+                    NSLog("AuraStretch: output write failed %@", String(describing: error))
+                    throw error
+                }
                 outputWritten += available
             }
         }
+        NSLog("AuraStretch: rendered %d frames", outputWritten)
         return outputURL
     }
 }
