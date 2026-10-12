@@ -44,6 +44,18 @@ Build a polished, Spotify-inspired, **offline-first iPhone music player** for th
 - When bypassed, do not unnecessarily alter signal; EQ-enabled output is processed, not bit-perfect. Don't claim bit-perfect output through iOS hardware without verification.
 - Investigate a suitable iOS-native audio/DSP engine and FLAC compatibility rather than presenting a decorative EQ.
 
+
+## High-fidelity tempo and pitch control (approved addition)
+- Provide two clearly labeled, precise sliders: **Tempo** (playback speed, e.g. percent of original) and **Pitch** (semitones and cents relative to original), with numeric readouts, reset-to-original controls, and a **Link** toggle.
+- **Linked mode:** adjust tempo and pitch together as a conventional playback-rate change (speeding up raises pitch; slowing down lowers it). Show both values updating coherently; changing either linked slider updates the other.
+- **Unlinked mode:** independent tempo changes preserve musical pitch; independent pitch changes preserve song duration and tempo. Allow combined independent adjustments.
+- Default to 100% tempo / 0 semitones pitch; keep processing bypassed when no adjustment is active. Save user preferences, with an accessible per-track reset. Choose conservative default slider ranges, with wider ranges only after listening tests.
+- **Audio fidelity is a primary acceptance criterion.** Do not implement this using a crude pitch resampler for independent controls or by merely changing sample rate. Evaluate high-quality real-time time-stretch/pitch-shift DSP (e.g. licensed Rubber Band Library or other suitable iOS-native engine) with careful transient handling, phase coherence, stereo preservation, vocal/formant behavior, buffering, and CPU/battery usage. Investigate library licenses and iOS/Signulous packaging constraints before selecting.
+- No algorithm can guarantee zero artifacts at every ratio. Favor transparent results at modest adjustments; clearly document unavoidable degradation at extreme settings. Prevent clipping, clicks, stutter, metallic/robotic sound and unwanted tempo/pitch drift as far as practical.
+- Test on real iPhone with varied material: vocals, drums/percussive attacks, sustained pads, acoustic instruments, dense mixes and FLAC samples. A/B against original; measure timing/pitch accuracy and listen for transient smearing, warble, phasing, formant distortion, stereo collapse, and underruns. Test with EQ enabled/disabled, lock-screen playback, seeking and track transitions.
+- Maintain source FLAC unchanged. This is non-destructive real-time playback DSP; no source file rewriting.
+- Treat tempo/pitch as part of the actual audio-engine design, not a cosmetic feature added after the engine is finalized. Account for it during engine selection alongside the 10-band EQ.
+
 ## Lyrics
 - Display embedded plain/synchronized lyrics and imported .lrc sidecars, synchronized with playback when timestamps exist; plain scrolling lyrics otherwise.
 - Optional online lookup when connected, user-initiated or opt-in; respect provider API licensing/rate limits, show source and unavailable states. No online dependency for offline music or stored lyrics. Don't claim availability of lyrics not found.
@@ -65,7 +77,7 @@ Build a polished, Spotify-inspired, **offline-first iPhone music player** for th
 2. Reliable playlist/queue/playback and iOS background/lock-screen controls.
 3. Playlists, folder browsing, search, sorting and theme system.
 4. Lyrics (embedded/LRC then optional online provider).
-5. Real 10-band iOS DSP EQ, presets, headroom, and sound quality tests.
+5. Real 10-band iOS DSP EQ **and high-fidelity linked/independent tempo and pitch controls**, presets, headroom, and sound quality tests.
 6. UI refinement, accessibility, performance, regression testing and distribution polish.
 
 ## Existing prototype limitations
