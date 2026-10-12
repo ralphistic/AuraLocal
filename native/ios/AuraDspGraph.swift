@@ -21,6 +21,8 @@ final class AuraDspGraph {
     // Interruptions may discard scheduled buffers even though AVAudioPlayerNode
     // still reports a loaded file. Reprime that same file when playback resumes.
     private var needsInterruptionReprime = false
+    private var appliedRate: Float = 1
+    private var appliedPitchCents: Float = 0
     var onFinished: (() -> Void)?
     private let waveLock = NSLock()
     private let analysisQueue = DispatchQueue(label: "auralocal.spectrum", qos: .userInitiated)
@@ -63,12 +65,12 @@ final class AuraDspGraph {
         equalizer.bypass = true
         timePitch.rate = 1
         timePitch.pitch = 0
-        timePitch.overlap = 32
+        timePitch.overlap = 8
         engine.connect(source, to: equalizer, format: nil)
         engine.connect(equalizer, to: timePitch, format: nil)
         engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
         let mixer = engine.mainMixerNode
-        mixer.installTap(onBus: 0, bufferSize: 1024, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+        mixer.installTap(onBus: 0, bufferSize: 2048, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, _ in
             guard let self = self, let audio = buffer.floatChannelData,
                   buffer.frameLength > 0 else { return }
             self.waveLock.lock()
@@ -79,7 +81,7 @@ final class AuraDspGraph {
             // The real-time audio callback only copies a short PCM snapshot.
             // Frequency analysis runs off the render thread to avoid glitches.
             let channels = Int(buffer.format.channelCount)
-            let window = min(Int(buffer.frameLength), 512)
+            let window = min(Int(buffer.frameLength), 2048)
             guard channels > 0, window > 32 else {
                 self.waveLock.lock()
                 self.analysisBusy = false
@@ -246,10 +248,46 @@ final class AuraDspGraph {
             throw NSError(domain: "AuraDSP", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid tempo or pitch"])
         }
         try configure()
-        let currentPosition = positionSeconds
+        let cents = semitones * 100
+        if abs(tempo - appliedRate) < 0.0001 &&
+           abs(cents - appliedPitchCents) < 0.01 { return }
+        let wasPlaying = isPlaying
+        let playbackPosition = positionSeconds
+        let path = activeFile?.url.path
+        // Flush the Apple time stretcher's history before a combined change.
+        // It could otherwise leave a resonant/oscillating buffer after reset.
+        if path != nil {
+            source.stop()
+            engine.pause()
+            timePitch.reset()
+        }
         timePitch.rate = tempo
-        timePitch.pitch = semitones * 100
-        anchorSeconds = currentPosition
+        timePitch.pitch = cents
+        appliedRate = tempo
+        appliedPitchCents = cents
+        anchorSeconds = playbackPosition
         anchorUptime = ProcessInfo.processInfo.systemUptime
+        if let path = path {
+            source.volume = 0
+            do {
+                try playFile(at: path, positionSeconds:
+                    min(playbackPosition, max(0, durationSeconds - 0.001)))
+                if wasPlaying {
+                    let token = generation
+                    for step in 1...12 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.003) { [weak self] in
+                            guard let self = self, self.generation == token else { return }
+                            self.source.volume = Float(step) / 12.0
+                        }
+                    }
+                } else {
+                    pausePlayback()
+                    source.volume = 1
+                }
+            } catch {
+                source.volume = 1
+                throw error
+            }
+        }
     }
 }
