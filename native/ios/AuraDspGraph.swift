@@ -7,6 +7,23 @@ final class AuraDspGraph {
     let equalizer = AVAudioUnitEQ(numberOfBands: 10)
     let timePitch = AVAudioUnitTimePitch()
     private(set) var configured = false
+    private var activeFile: AVAudioFile?
+
+    func playFile(at path: String, positionSeconds: Double = 0) throws {
+        try configure()
+        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        source.stop()
+        let start = AVAudioFramePosition(max(0, positionSeconds) * file.processingFormat.sampleRate)
+        guard start < file.length else { throw NSError(domain: "AuraDSP", code: 3, userInfo: [NSLocalizedDescriptionKey: "Start position exceeds file length"]) }
+        activeFile = file
+        source.scheduleSegment(file, startingFrame: start, frameCount: AVAudioFrameCount(min(file.length - start, Int64(UInt32.max))), at: nil, completionHandler: nil)
+        source.play()
+    }
+
+    func stopPlayback() {
+        source.stop()
+        activeFile = nil
+    }
     let centers: [Float] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
     func configure() throws {
