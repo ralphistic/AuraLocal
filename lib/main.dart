@@ -67,6 +67,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   double playerDrag = 0;
   bool draggingPlayer = false;
   bool dismissingPlayer = false;
+  Timer? dspWheelDebounce;
+  Offset? pitchTouchStart;
+  bool pitchTouchMoved = false;
 
   @override
   void initState() {
@@ -95,6 +98,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   @override
   void dispose() {
     pollTimer?.cancel();
+    dspWheelDebounce?.cancel();
     spectrumTicker?.dispose();
     waveformLevels.dispose();
     nativeDsp.setMethodCallHandler(null);
@@ -169,7 +173,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     });
   }
 
+  void scheduleNativePitchTempoUpdate() {
+    dspWheelDebounce?.cancel();
+    dspWheelDebounce = Timer(const Duration(milliseconds: 240), () {
+      updateNativePitchTempo();
+    });
+  }
+
   Future<void> updateNativePitchTempo() async {
+    dspWheelDebounce?.cancel();
     try {
       await nativeDsp.invokeMethod('setTimePitch', {
         'tempo': playbackSpeed,
@@ -579,7 +591,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               onSelectedItemChanged: (i) {
                 refresh(() => pitchSemitones = i - 12);
                 setState(() {});
-                updateNativePitchTempo();
+                scheduleNativePitchTempoUpdate();
               },
               children: [for (var i = -12; i <= 12; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
             )),
@@ -589,7 +601,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               onSelectedItemChanged: (i) {
                 refresh(() => pitchCents = (i - 99).toDouble());
                 setState(() {});
-                updateNativePitchTempo();
+                scheduleNativePitchTempoUpdate();
               },
               children: [for (var i = -99; i <= 99; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
             )),
@@ -614,7 +626,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             onSelectedItemChanged: (i) {
               refresh(() => playbackSpeed = (i + 50) / 100);
               setState(() {});
-              updateNativePitchTempo();
+              scheduleNativePitchTempoUpdate();
             },
             children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))],
           )),
@@ -636,17 +648,47 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             // One combined pitch control. Tap anywhere on it to open BOTH
             // precise iOS picker wheels; a second fine-pitch slider is gone.
             Semantics(
-              button: true,
-              label: 'Adjust pitch in semitones and cents',
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => showPitchWheel(refresh),
-                child: AbsorbPointer(child: Slider(
-                  value: ((pitchSemitones * 100 + pitchCents) / 100).clamp(-12.0, 12.0).toDouble(),
-                  min: -12, max: 12,
-                  onChanged: (_) {},
-                )),
+              label: 'Pitch slider. Tap to open semitone and cent wheels; drag to change pitch.',
+              child: Listener(
+                onPointerDown: (event) {
+                  pitchTouchStart = event.position;
+                  pitchTouchMoved = false;
+                },
+                onPointerMove: (event) {
+                  if (pitchTouchStart != null &&
+                      (event.position - pitchTouchStart!).distance > 9) {
+                    pitchTouchMoved = true;
+                  }
+                },
+                onPointerUp: (event) {
+                  final wasTap = !pitchTouchMoved && pitchTouchStart != null &&
+                      (event.position - pitchTouchStart!).distance < 9;
+                  pitchTouchStart = null;
+                  if (wasTap) showPitchWheel(refresh);
+                },
+                onPointerCancel: (_) => pitchTouchStart = null,
+                child: Slider(
+                  value: ((pitchSemitones * 100 + pitchCents) / 100)
+                      .clamp(-12.0, 12.0).toDouble(),
+                  min: -12,
+                  max: 12,
+                  onChanged: (value) {
+                    final cents = (value * 100).round().clamp(-1200, 1200);
+                    refresh(() {
+                      pitchSemitones = (cents / 100).truncate();
+                      pitchCents = (cents - pitchSemitones * 100).toDouble();
+                    });
+                    setState(() {});
+                    scheduleNativePitchTempoUpdate();
+                  },
+                  onChangeEnd: (_) => updateNativePitchTempo(),
+                ),
               ),
+            ),
+            TextButton.icon(
+              onPressed: () => showPitchWheel(refresh),
+              icon: const Icon(Icons.tune, size: 18),
+              label: const Text('Fine tune: semitones / cents'),
             ),
             TextButton(onPressed: () => showTempoWheel(refresh),
               child: Text('Tempo: ${(playbackSpeed * 100).round()}%')),
