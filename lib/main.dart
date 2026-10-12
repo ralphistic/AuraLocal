@@ -181,18 +181,31 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     return File('${docs.path}/auralocal-library.json');
   }
 
+  String manifestTrackKey(String absolutePath) =>
+      'Music/' + Uri.file(absolutePath).pathSegments.last;
+
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
-    await manifest.writeAsString(jsonEncode({
-      'files': files, 'favorites': favorites.toList(), 'playlists': playlists,
+    final content = jsonEncode({
+      'files': files.map(manifestTrackKey).toList(),
+      'favorites': favorites.map(manifestTrackKey).toList(),
+      'playlists': playlists.map((name, tracks) =>
+          MapEntry(name, tracks.map(manifestTrackKey).toList())),
       'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed,
       'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones,
-      'originalNames': originalNames,
+      'originalNames': originalNames.map((path, name) =>
+          MapEntry(manifestTrackKey(path), name)),
       'eqGains': eqGains, 'eqEnabled': eqEnabled,
       'eqPreset': eqPreset, 'customEqPresets': customEqPresets,
       'sortMode': sortMode, 'sortAscending': sortAscending,
-      'dateAdded': dateAdded, 'trackDurations': trackDurations,
-    }));
+      'dateAdded': dateAdded.map((path, added) =>
+          MapEntry(manifestTrackKey(path), added)),
+      'trackDurations': trackDurations.map((path, duration) =>
+          MapEntry(manifestTrackKey(path), duration)),
+    });
+    final pending = File(manifest.path + '.pending');
+    await pending.writeAsString(content, flush: true);
+    await pending.rename(manifest.path);
   }
 
   Future<void> syncQueue() async {
