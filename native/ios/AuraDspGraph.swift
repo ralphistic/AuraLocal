@@ -61,6 +61,7 @@ final class AuraDspGraph {
             band.frequency = centers[index]
             band.bandwidth = 1
             band.gain = 0
+            band.bypass = false
         }
         equalizer.bypass = true
         timePitch.rate = 1
@@ -246,8 +247,14 @@ final class AuraDspGraph {
             throw NSError(domain: "AuraDSP", code: 1, userInfo: [NSLocalizedDescriptionKey: "Ten EQ gains from -12 to +12 dB required"])
         }
         try configure()
-        for (i, gain) in gains.enumerated() { equalizer.bands[i].gain = gain }
-        equalizer.globalGain = enabled ? -max(0, gains.max() ?? 0) : 0
+        for (i, gain) in gains.enumerated() {
+            equalizer.bands[i].gain = gain
+            equalizer.bands[i].bypass = false
+        }
+        // Preserve usable headroom when boosting, while avoiding unexpected
+        // loudness compensation from disabled filters. EQ cuts remain audible.
+        let boost = max(0, gains.max() ?? 0)
+        equalizer.globalGain = enabled ? -min(boost, 6) : 0
         equalizer.bypass = !enabled
     }
     func setTimePitch(tempo: Float, semitones: Float) throws {

@@ -91,6 +91,8 @@ final class AuraPitchBridge {
                     result(self.currentIndex)
                 case "getPosition":
                     result(self.graph.positionSeconds)
+                case "getOutputInfo":
+                    result(self.outputInfo())
                 case "getState":
                     self.updateNowPlaying(force: false)
                     result([
@@ -168,6 +170,30 @@ final class AuraPitchBridge {
                 result(FlutterError(code: "NATIVE_AUDIO", message: error.localizedDescription, details: nil))
             }
         }
+    }
+
+    private func outputInfo() -> [String: Any] {
+#if os(iOS)
+        let route = AVAudioSession.sharedInstance().currentRoute.outputs.first
+        let port = route?.portType
+        let label: String
+        switch port {
+        case .some(.builtInSpeaker): label = "iPhone speaker"
+        case .some(.builtInReceiver): label = "iPhone earpiece"
+        case .some(.headphones), .some(.headsetMic): label = "Wired headphones"
+        default: label = route?.portName ?? "Audio output"
+        }
+        let path = currentIndex >= 0 && currentIndex < queue.count ? queue[currentIndex] : nil
+        let ext = path.map { URL(fileURLWithPath: $0).pathExtension.lowercased() } ?? ""
+        let codec = ext == "flac" ? "FLAC" : ext == "mp3" ? "MP3" :
+            ext == "wav" ? "WAV" : ext == "aac" ? "AAC" :
+            ext == "m4a" ? "M4A" : ""
+        // Lossless describes the decoded source, NOT the Bluetooth or DAC link.
+        // WAV/M4A require a codec probe before their contents can be certified.
+        return ["output": label, "codec": codec, "lossless": ext == "flac"]
+#else
+        return ["output": "Audio output", "codec": "", "lossless": false]
+#endif
     }
 
     private func argumentError(_ message: String) -> NSError {

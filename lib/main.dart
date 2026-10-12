@@ -15,6 +15,7 @@ Future<void> main() async {
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
+      fontFamily: 'Adventor',
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF101218),
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF9BE9C6), brightness: Brightness.dark),
@@ -59,6 +60,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final playlists = <String, List<String>>{};
   String? activePlaylist;
   String? error;
+  String listeningOutput = '';
+  String listeningCodec = '';
+  bool sourceLossless = false;
+  int outputInfoTicks = 0;
   int currentIndex = -1;
   bool isPlaying = false;
   bool libraryHome = true;
@@ -131,6 +136,20 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     super.dispose();
   }
 
+  Future<void> refreshOutputInfo() async {
+    if (files.isEmpty) return;
+    try {
+      final info = await nativeDsp.invokeMapMethod<String, dynamic>('getOutputInfo');
+      if (info == null || !mounted) return;
+      final device = info['output'] as String? ?? '';
+      final codec = info['codec'] as String? ?? '';
+      final lossless = info['lossless'] == true;
+      if (device != listeningOutput || codec != listeningCodec || lossless != sourceLossless) {
+        setState(() { listeningOutput = device; listeningCodec = codec; sourceLossless = lossless; });
+      }
+    } on PlatformException catch (_) { /* Keep playback independent of route reporting. */ }
+  }
+
   Future<void> pollNative() async {
     if (pollBusy || files.isEmpty) return;
     pollBusy = true;
@@ -138,6 +157,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       final response = await nativeDsp.invokeMapMethod<String, dynamic>('getState');
       if (!mounted || response == null) return;
       tick++;
+      if (++outputInfoTicks >= 60) {
+        outputInfoTicks = 0;
+        refreshOutputInfo();
+      }
       if (waveformVisible) {
         final values = response['waveform'];
         if (values is List) {
@@ -232,6 +255,47 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     } on PlatformException catch (e) {
       if (mounted) setState(() => error = 'Audio processing: ${e.message}');
     }
+  }
+
+  // Remove duplicate library references without deleting or modifying audio files.
+  // Bytes are compared only for tracks of equal size; differing masters survive.
+  Future<int> hideDuplicateLibraryEntries() async {
+    final lengths = <int, List<String>>{};
+    final duplicates = <String, String>{};
+    for (final path in List<String>.of(files)) {
+      final file = File(path);
+      if (!await file.exists()) continue;
+      final size = await file.length();
+      String? existing;
+      for (final candidate in lengths[size] ?? <String>[]) {
+        if (await isSameAudio(file, File(candidate))) { existing = candidate; break; }
+      }
+      if (existing == null) {
+        lengths.putIfAbsent(size, () => []).add(path);
+      } else {
+        duplicates[path] = existing;
+      }
+    }
+    if (duplicates.isEmpty) return 0;
+    // Keep a favorite or playlist reference if either identical copy had it.
+    for (final duplicate in duplicates.keys) {
+      final kept = duplicates[duplicate]!;
+      if (favorites.contains(duplicate)) favorites.add(kept);
+      for (final entries in playlists.values) {
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i] == duplicate) entries[i] = kept;
+        }
+        final unique = entries.toSet().toList();
+        entries..clear()..addAll(unique);
+      }
+      dateAdded.remove(duplicate);
+      trackDurations.remove(duplicate);
+      originalNames.remove(duplicate);
+    }
+    files.removeWhere(duplicates.containsKey);
+    await syncQueue();
+    await saveLibrary();
+    return duplicates.length;
   }
 
   Future<void> restoreLibrary() async {
@@ -363,6 +427,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }
         }
       }
+      await hideDuplicateLibraryEntries();
       await syncQueue();
       await updateNativePitchTempo();
       await applyNativeEQ();
@@ -437,7 +502,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         imported++;
       }
       if (imported == 0 && skipped == 0) throw Exception('No accessible audio files returned');
-      if (imported > 0) await syncQueue();
+      if (imported > 0) {
+        await hideDuplicateLibraryEntries();
+        await syncQueue();
+      }
       await saveLibrary();
       if (imported > 0) await loadMissingDurations();
       if (mounted) {
@@ -933,6 +1001,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       // Editing any slider should immediately affect the sound.
       eqEnabled = true;
     });
+    // Apply on each drag frame, not only when the thumb is released.
+    setState(() {});
     scheduleEQUpdate();
   }
 
@@ -1351,6 +1421,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }
         });
       }
+      await hideDuplicateLibraryEntries();
       await syncQueue();
       await saveLibrary();
       await loadMissingDurations();
@@ -1585,6 +1656,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ) : const SizedBox(width: double.infinity, height: 0),
           ),
           const SizedBox(height: 12),
+          if (listeningOutput.isNotEmpty)
+            Padding(padding: const EdgeInsets.only(bottom: 5), child: Text(
+              [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
+                if (sourceLossless) 'Lossless source'].join('  ·  '),
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, color: Colors.white60))),
           Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
             onChangeStart: durationSeconds <= 0 ? null :
               (value) => setState(() { draggingSeek = true; scrubPosition = value; }),
