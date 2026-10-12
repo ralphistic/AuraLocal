@@ -36,8 +36,9 @@ func measure(_ cents: Float) throws -> Float {
 }
 let normal = try measure(0)
 let shifted = try measure(1200)
-print("PRODUCTION GRAPH: FLAC normal=\(normal)Hz, +12 semitones=\(shifted)Hz")
+fputs("PRODUCTION GRAPH: FLAC normal=\(normal)Hz, +12 semitones=\(shifted)Hz\n", stderr)
 guard abs(normal - 440) < 30 && abs(shifted - 880) < 60 else {
-    fatalError("Production graph does not audibly shift FLAC pitch")
+    fputs("FAIL: Production graph does not audibly shift FLAC pitch\n", stderr)
+    exit(1)
 }
 print("PASS: production graph decoded FLAC and produced audible pitch-shifted PCM")
