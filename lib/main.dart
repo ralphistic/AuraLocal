@@ -1117,6 +1117,199 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     if (value == 'length') loadMissingDurations();
   }
 
+
+  /// An unsigned IPA update preserves sandbox data only when installed IN PLACE
+  /// with the same final bundle identifier. Deleting an iOS app deletes its
+  /// private music storage. These portable ZIPs survive in Files outside the app.
+  Future<void> exportLibraryBackup() async {
+    if (isLibraryExporting) return;
+    setState(() => isLibraryExporting = true);
+    try {
+      await saveLibrary();
+      final temp = await getTemporaryDirectory();
+      final backup = File(temp.path + '/AuraLocal-Library-Backup.zip');
+      final manifest = await libraryManifest();
+      final portable = Map<String, dynamic>.from(
+        jsonDecode(await manifest.readAsString()) as Map);
+      String portableName(String file) {
+        return 'Music/' + Uri.file(file).pathSegments.last;
+      }
+      portable['files'] = files.map(portableName).toList();
+      portable['favorites'] = favorites.map(portableName).toList();
+      portable['playlists'] = playlists.map((name, tracks) =>
+        MapEntry(name, tracks.map(portableName).toList()));
+      portable['originalNames'] = originalNames.map((path, title) =>
+        MapEntry(portableName(path), title));
+      portable['dateAdded'] = dateAdded.map((path, value) =>
+        MapEntry(portableName(path), value));
+      portable['trackDurations'] = trackDurations.map((path, value) =>
+        MapEntry(portableName(path), value));
+      final portableManifest = File(temp.path + '/auralocal-backup.json');
+      await portableManifest.writeAsString(jsonEncode(portable));
+
+      final zip = ZipFileEncoder();
+      zip.create(backup.path, level: 0); // Store FLAC unchanged.
+      try {
+        for (final song in files) {
+          final file = File(song);
+          if (await file.exists()) {
+            await zip.addFile(file, portableName(song), 0);
+          }
+        }
+        await zip.addFile(portableManifest, 'auralocal-backup.json', 0);
+      } finally {
+        await zip.close();
+      }
+      if (!mounted) return;
+      final showingPicker = await nativeDsp.invokeMethod<bool>(
+        'exportBackup', {'path': backup.path});
+      if (showingPicker != true) throw Exception('Unable to open Files');
+    } catch (e) {
+      if (mounted) setState(() => error = 'Backup export: $e');
+    } finally {
+      if (mounted) setState(() => isLibraryExporting = false);
+    }
+  }
+
+  Future<void> restoreLibraryBackup() async {
+    if (isLibraryRestoring) return;
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom, allowedExtensions: ['zip'],
+      allowMultiple: false);
+    final path = picked?.files.single.path;
+    if (path == null) return;
+    setState(() => isLibraryRestoring = true);
+    try {
+      final temp = await getTemporaryDirectory();
+      final staging = Directory(temp.path + '/auralocal-restore-' +
+        DateTime.now().millisecondsSinceEpoch.toString());
+      await staging.create(recursive: true);
+      final input = InputFileStream(path);
+      final archive = ZipDecoder().decodeStream(input);
+      if (archive.files.length > 20000) throw FormatException('Backup has too many files');
+      var hasManifest = false;
+      for (final item in archive.files) {
+        if (!item.isFile) continue;
+        final name = item.name;
+        if (name == 'auralocal-backup.json') {
+          hasManifest = true;
+        } else if (name.startsWith('Music/')) {
+          final base = name.substring('Music/'.length);
+          if (base.isEmpty || base == '.' || base == '..' ||
+              base.contains('/') || base.contains(r'\')) {
+            throw FormatException('Backup contains unsafe filenames');
+          }
+        } else {
+          throw FormatException('This is not an AuraLocal library backup');
+        }
+        final output = OutputFileStream(staging.path + '/' + name);
+        item.writeContent(output);
+        output.closeSync();
+      }
+      if (!hasManifest) throw FormatException('Backup manifest not found');
+      final backupManifest = File(staging.path + '/auralocal-backup.json');
+      if (await backupManifest.length() > 10000000) {
+        throw FormatException('Backup manifest is too large');
+      }
+      final decoded = jsonDecode(await backupManifest.readAsString());
+      if (decoded is! Map || decoded['files'] is! List) {
+        throw FormatException('Invalid library backup');
+      }
+      final oldPaths = (decoded['files'] as List).whereType<String>();
+      final destination = await musicDirectory();
+      final restored = <String, String>{};
+      for (final oldPath in oldPaths) {
+        if (!oldPath.startsWith('Music/')) continue;
+        final basename = oldPath.substring(6);
+        if (basename.isEmpty || basename.contains('/') ||
+            basename.contains(r'\') || basename == '.' || basename == '..') {
+          throw FormatException('Backup contains an unsafe file path');
+        }
+        final from = File(staging.path + '/' + oldPath);
+        if (!await from.exists()) continue;
+        var target = File(destination.path + '/' + basename);
+        if (await target.exists() && !await isSameAudio(from, target)) {
+          final dot = basename.lastIndexOf('.');
+          final name = dot > 0 ? basename.substring(0, dot) : basename;
+          final ext = dot > 0 ? basename.substring(dot) : '';
+          var suffix = 1;
+          do {
+            target = File(destination.path + '/' + name +
+              '_restored' + (suffix++).toString() + ext);
+          } while (await target.exists());
+        }
+        if (!await target.exists()) await from.copy(target.path);
+        restored[oldPath] = target.path;
+        if (!files.contains(target.path)) files.add(target.path);
+      }
+      final names = decoded['originalNames'];
+      if (names is Map) {
+        names.forEach((path, title) {
+          if (path is String && title is String && restored.containsKey(path)) {
+            originalNames[restored[path]!] = title;
+          }
+        });
+      }
+      final backedUpFavorites = decoded['favorites'];
+      if (backedUpFavorites is List) {
+        for (final path in backedUpFavorites.whereType<String>()) {
+          if (restored[path] != null) favorites.add(restored[path]!);
+        }
+      }
+      final backedUpPlaylists = decoded['playlists'];
+      if (backedUpPlaylists is Map) {
+        backedUpPlaylists.forEach((key, value) {
+          if (key is! String || value is! List) return;
+          final existing = playlists.putIfAbsent(key, () => []);
+          for (final old in value.whereType<String>()) {
+            final mapped = restored[old];
+            if (mapped != null && !existing.contains(mapped)) existing.add(mapped);
+          }
+        });
+      }
+      final added = decoded['dateAdded'];
+      if (added is Map) {
+        added.forEach((path, value) {
+          if (path is String && value is num && restored.containsKey(path)) {
+            dateAdded[restored[path]!] = value.toInt();
+          }
+        });
+      }
+      final lengths = decoded['trackDurations'];
+      if (lengths is Map) {
+        lengths.forEach((path, value) {
+          if (path is String && value is num && restored.containsKey(path)) {
+            trackDurations[restored[path]!] = value.toDouble();
+          }
+        });
+      }
+      if (decoded['customEqPresets'] is Map) {
+        (decoded['customEqPresets'] as Map).forEach((name, values) {
+          if (name is String && values is List && values.length == 10 &&
+              values.every((v) => v is num)) {
+            customEqPresets[name] = values.map(
+              (v) => (v as num).toDouble().clamp(-12.0, 12.0).toDouble()).toList();
+          }
+        });
+      }
+      await syncQueue();
+      await saveLibrary();
+      await loadMissingDurations();
+      if (mounted) {
+        setState(() => error = null);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Library restored: ' + restored.length.toString() +
+            ' tracks available.'),
+        ));
+      }
+      try { await staging.delete(recursive: true); } catch (_) {}
+    } catch (e) {
+      if (mounted) setState(() => error = 'Backup restore: $e');
+    } finally {
+      if (mounted) setState(() => isLibraryRestoring = false);
+    }
+  }
+
   Widget buildLibrary() {
     final matches = List<int>.generate(files.length, (i) => i).where((i) =>
       (activePlaylist == null || (playlists[activePlaylist]?.contains(files[i]) ?? false)) &&
@@ -1142,6 +1335,27 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       appBar: AppBar(title: const Text('Your Library'), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add), onPressed: createPlaylist),
         IconButton(tooltip: 'Import music', icon: const Icon(Icons.add), onPressed: import),
+        PopupMenuButton<String>(
+          tooltip: 'Library backup and restore',
+          icon: const Icon(Icons.more_vert),
+          onSelected: (value) {
+            if (value == 'backup') {
+              exportLibraryBackup();
+            } else if (value == 'restore') {
+              restoreLibraryBackup();
+            }
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'backup',
+              child: ListTile(leading: Icon(Icons.backup_outlined),
+                title: Text('Back up library'),
+                subtitle: Text('Save music & playlists to Files'))),
+            const PopupMenuItem(value: 'restore',
+              child: ListTile(leading: Icon(Icons.restore),
+                title: Text('Restore backup'),
+                subtitle: Text('Import an AuraLocal backup ZIP'))),
+          ],
+        ),
       ]),
       body: SafeArea(child: Column(children: [
         Padding(padding: const EdgeInsets.all(16), child: TextField(
@@ -1194,8 +1408,22 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               '${activePlaylist!} • ${matches.length} songs',
               style: const TextStyle(color: Colors.white60)))),
         Expanded(child: files.isEmpty
-          ? Center(child: FilledButton.icon(onPressed: import, icon: const Icon(Icons.add),
-              label: const Text('Import your music')))
+          ? Center(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FilledButton.icon(onPressed: import, icon: const Icon(Icons.add),
+                  label: const Text('Import your music')),
+                const SizedBox(height: 14),
+                TextButton.icon(onPressed: restoreLibraryBackup,
+                  icon: const Icon(Icons.restore),
+                  label: const Text('Restore saved AuraLocal backup')),
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('iOS deletes an app’s private music when you uninstall it.\n'
+                    'Back up to Files before changing your signing or installation.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white54, fontSize: 12))),
+              ]))
           : ListView.builder(itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];
               return ListTile(
@@ -1237,6 +1465,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ),
           ),
         ),
+        if (isLibraryExporting || isLibraryRestoring)
+          const LinearProgressIndicator(minHeight: 2),
         if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
       ])),
     );
