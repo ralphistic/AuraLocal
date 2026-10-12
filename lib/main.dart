@@ -67,6 +67,8 @@ class _MusicPageState extends State<MusicPage> {
   bool favoritesOnly = false;
   bool sortAscending = true;
   double playbackSpeed = 1.0;
+  double? scrubPosition;
+  bool draggingPlayer = false;
 
   @override
   void initState() {
@@ -75,7 +77,7 @@ class _MusicPageState extends State<MusicPage> {
     restoreLibrary();
     player.playerStateStream.listen((_) { if (mounted) setState(() {}); });
     player.currentIndexStream.listen((_) { if (mounted) setState(() {}); });
-    player.positionStream.listen((_) { if (mounted) setState(() {}); });
+    player.positionStream.listen((_) { if (mounted && !draggingPlayer && !libraryHome) setState(() {}); });
     player.durationStream.listen((_) { if (mounted) setState(() {}); });
   }
 
@@ -325,7 +327,7 @@ class _MusicPageState extends State<MusicPage> {
   @override
   Widget build(BuildContext context) {
     final length = player.duration ?? Duration.zero;
-    final pos = player.position;
+    final pos = draggingPlayer && scrubPosition != null ? Duration(milliseconds: scrubPosition!.round()) : player.position;
     final max = length.inMilliseconds.toDouble().clamp(1.0, double.infinity);
     if (libraryHome) {
       final matches = List<int>.generate(files.length, (i) => i).where((i) =>
@@ -402,7 +404,10 @@ class _MusicPageState extends State<MusicPage> {
         ])),
       );
     }
-    return Scaffold(
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragEnd: (details) { if ((details.primaryVelocity ?? 0) > 450) showLibrary(); },
+      child: Scaffold(
       backgroundColor: const Color(0xFF101218),
       appBar: AppBar(backgroundColor: Colors.transparent, title: const Text('Now Playing'),
         actions: [IconButton(tooltip: 'Queue', onPressed: showQueue, icon: const Icon(Icons.queue_music)), IconButton(tooltip: 'Library', onPressed: showLibrary, icon: const Icon(Icons.library_music)), IconButton(tooltip: 'Import songs', onPressed: import, icon: const Icon(Icons.add_circle_outline))]),
@@ -418,11 +423,16 @@ class _MusicPageState extends State<MusicPage> {
           if (files.isNotEmpty) IconButton(tooltip: 'Favorite', onPressed: () => toggleFavorite(files[player.currentIndex ?? 0]), icon: Icon(favorites.contains(files[player.currentIndex ?? 0]) ? Icons.favorite : Icons.favorite_border, color: const Color(0xFF9BE9C6)))
         ]),
         const SizedBox(height: 8),
-        Text(files.isEmpty ? 'Tap + to import local audio' : '${files.length} local files',
+        Text(files.isEmpty ? 'Tap + to import local audio' : 'Playing from Your Library',
           style: const TextStyle(color: Colors.white60)),
         const SizedBox(height: 22),
         Slider(value: pos.inMilliseconds.toDouble().clamp(0.0, max), max: max,
-          onChanged: length == Duration.zero ? null : (v) => player.seek(Duration(milliseconds: v.round()))),
+          onChangeStart: length == Duration.zero ? null : (v) => setState(() { draggingPlayer = true; scrubPosition = v; }),
+          onChanged: length == Duration.zero ? null : (v) => setState(() => scrubPosition = v),
+          onChangeEnd: length == Duration.zero ? null : (v) async {
+            await player.seek(Duration(milliseconds: v.round()));
+            if (mounted) setState(() { draggingPlayer = false; scrubPosition = null; });
+          }),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(clock(pos), style: const TextStyle(color: Colors.white70)),
           Text(clock(length), style: const TextStyle(color: Colors.white70))
@@ -446,15 +456,11 @@ class _MusicPageState extends State<MusicPage> {
         ]),
         const SizedBox(height: 8),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          TextButton.icon(
-            onPressed: files.isEmpty ? null : () => seekSeconds(-10),
-            icon: const Icon(Icons.replay_10),
-            label: const Text('Back 10s')),
+          IconButton(tooltip: 'Back 10 seconds', iconSize: 32,
+            onPressed: files.isEmpty ? null : () => seekSeconds(-10), icon: const Icon(Icons.replay_10)),
           const SizedBox(width: 16),
-          TextButton.icon(
-            onPressed: files.isEmpty ? null : () => seekSeconds(10),
-            icon: const Icon(Icons.forward_10),
-            label: const Text('Forward 10s')),
+          IconButton(tooltip: 'Forward 10 seconds', iconSize: 32,
+            onPressed: files.isEmpty ? null : () => seekSeconds(10), icon: const Icon(Icons.forward_10)),
         ]),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music), label: const Text('Library')),
@@ -476,6 +482,6 @@ class _MusicPageState extends State<MusicPage> {
         if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
         const Spacer()
       ]))),
-    );
+    ));
   }
 }
