@@ -76,6 +76,30 @@ class _MusicPageState extends State<MusicPage> {
   double playbackSpeed = 1.0;
   double pitchCents = 0.0;
   int pitchSemitones = 0;
+  bool nativePitchPreview = false;
+
+  Future<void> startNativePitchPreview() async {
+    if (files.isEmpty) return;
+    final path = files[(player.currentIndex ?? 0).clamp(0, files.length - 1)];
+    final position = player.position.inMilliseconds / 1000.0;
+    try {
+      await player.pause();
+      await nativeDsp.invokeMethod('playFile', {'path': path, 'position': position});
+      nativePitchPreview = true;
+      await updateNativePitchTempo();
+      if (mounted) setState(() => error = null);
+    } on PlatformException catch (e) {
+      nativePitchPreview = false;
+      if (mounted) setState(() => error = 'Native playback failed: ${e.message}');
+    }
+  }
+
+  Future<void> stopNativePitchPreview() async {
+    try { await nativeDsp.invokeMethod('stopFile'); } on PlatformException catch (_) {}
+    nativePitchPreview = false;
+    if (mounted) setState(() {});
+  }
+
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
 
   Future<void> updateNativePitchTempo() async {
@@ -100,7 +124,7 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   @override
-  void dispose() { player.dispose(); super.dispose(); }
+  void dispose() { if (nativePitchPreview) nativeDsp.invokeMethod('stopFile'); player.dispose(); super.dispose(); }
 
   Future<Directory> musicDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
@@ -624,7 +648,13 @@ class _MusicPageState extends State<MusicPage> {
               mainAxisSize: MainAxisSize.min, children: [
                 const Text('Pitch / tempo engine', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                const Text('Native DSP controls are experimental. Playback still uses just_audio; pitch changes are not audible until the audio stream is connected.', textAlign: TextAlign.center),
+                const Text('Native pitch preview plays the selected file through the iOS audio engine. It temporarily pauses normal playback. FLAC support depends on iOS decoding.', textAlign: TextAlign.center),
+                TextButton.icon(onPressed: () async {
+                  if (nativePitchPreview) { await stopNativePitchPreview(); } else { await startNativePitchPreview(); }
+                  refresh(() {});
+                }, icon: Icon(nativePitchPreview ? Icons.stop_circle : Icons.play_circle),
+                  label: Text(nativePitchPreview ? 'Stop native pitch preview' : 'Start native pitch preview (audible pitch)')),
+                if (nativePitchPreview) const Text('Preview mode: use the pitch and tempo controls below. Stop preview to return to regular player.', textAlign: TextAlign.center),
                 const SizedBox(height: 20),
                 TextButton(onPressed: () => showPitchWheel(refresh), child: Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones, ${pitchCents.toStringAsFixed(0)} cents')),
                 Text('Semitones: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones'),
