@@ -14,7 +14,7 @@ func measure(_ cents: Float) throws -> Float {
     try graph.playFile(at: CommandLine.arguments[1])
     var samples: [Float] = []
     var attempts = 0
-    while samples.count < 60000 && attempts < 100 {
+    while samples.count < 110000 && attempts < 140 {
         attempts += 1
         let status = try graph.engine.renderOffline(4096, to: output)
         switch status {
@@ -27,12 +27,29 @@ func measure(_ cents: Float) throws -> Float {
         @unknown default: fatalError("Unexpected render status")
         }
     }
-    guard samples.count >= 60000 else { fatalError("No native audio output") }
-    let region = Array(samples[22050..<60000])
+    guard samples.count >= 110000 else { fatalError("No native audio output") }
+    let region = Array(samples[65000..<110000])
     let amplitude = region.map { abs($0) }.max() ?? 0
     guard amplitude > 0.001 else { fatalError("Native output is silent") }
-    let crossings = zip(region, region.dropFirst()).filter { $0.0 <= 0 && $0.1 > 0 }.count
-    return Float(crossings) * 44100 / Float(region.count)
+    // Counted zero crossings are unreliable after time-stretching because
+    // transient windows and waveform discontinuities add false crossings.
+    // Measure the dominant musical fundamental using spectral correlation.
+    let window = Array(region.prefix(8192))
+    var bestHz: Float = 0
+    var bestPower: Double = -1
+    for hz in stride(from: 350, through: 1000, by: 2) {
+        let omega = 2.0 * Double.pi * Double(hz) / 44100.0
+        var real = 0.0
+        var imag = 0.0
+        for i in window.indices {
+            let value = Double(window[i]) * (0.5 - 0.5 * cos(2 * .pi * Double(i) / Double(window.count - 1)))
+            real += value * cos(omega * Double(i))
+            imag += value * sin(omega * Double(i))
+        }
+        let power = real * real + imag * imag
+        if power > bestPower { bestPower = power; bestHz = Float(hz) }
+    }
+    return bestHz
 }
 let normal = try measure(0)
 let shifted = try measure(1200)
