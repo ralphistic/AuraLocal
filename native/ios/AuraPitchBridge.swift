@@ -3,10 +3,11 @@ import UIKit
 
 final class AuraPitchBridge {
     private let graph = AuraDspGraph()
+    private let channel: FlutterMethodChannel
     private var playingNative = false
 
     init(messenger: FlutterBinaryMessenger) {
-        let channel = FlutterMethodChannel(name: "auralocal/native_dsp", binaryMessenger: messenger)
+        channel = FlutterMethodChannel(name: "auralocal/native_dsp", binaryMessenger: messenger)
         channel.setMethodCallHandler { [weak self] call, result in
             guard let self = self else { result(FlutterError(code: "UNAVAILABLE", message: "Bridge released", details: nil)); return }
             do {
