@@ -68,6 +68,65 @@ class _MusicPageState extends State<MusicPage> {
     } catch (e) { setState(() => error = e.toString()); }
   }
 
+  Future<void> skipTrack(int delta) async {
+    if (files.isEmpty) return;
+    final current = player.currentIndex ?? 0;
+    if (delta < 0 && player.position.inSeconds > 3) {
+      await player.seek(Duration.zero);
+      return;
+    }
+    final target = (current + delta + files.length) % files.length;
+    await player.seek(Duration.zero, index: target);
+    if (!player.playing) await player.play();
+  }
+
+  Future<void> seekSeconds(int seconds) async {
+    final duration = player.duration;
+    if (files.isEmpty || duration == null) return;
+    final target = player.position + Duration(seconds: seconds);
+    final ms = target.inMilliseconds.clamp(0, duration.inMilliseconds);
+    await player.seek(Duration(milliseconds: ms));
+  }
+
+  void showLibrary() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (libraryContext) => Scaffold(
+        backgroundColor: const Color(0xFF101218),
+        appBar: AppBar(title: const Text('Your Library'), backgroundColor: const Color(0xFF101218),
+          actions: [IconButton(icon: const Icon(Icons.add), onPressed: () async {
+            Navigator.of(libraryContext).pop();
+            await import();
+          })]),
+        body: files.isEmpty
+          ? Center(child: TextButton.icon(
+              onPressed: () async {
+                Navigator.of(libraryContext).pop();
+                await import();
+              },
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('Import your first song')))
+          : ListView.builder(
+              itemCount: files.length,
+              itemBuilder: (_, index) {
+                final name = Uri.file(files[index]).pathSegments.last;
+                return ListTile(
+                  leading: Icon(
+                    index == player.currentIndex ? Icons.graphic_eq : Icons.music_note,
+                    color: Colors.tealAccent),
+                  title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text('Track ${index + 1}'),
+                  onTap: () async {
+                    Navigator.of(libraryContext).pop();
+                    await player.seek(Duration.zero, index: index);
+                    await player.play();
+                  },
+                );
+              },
+            ),
+      ),
+    ));
+  }
+
   String get title {
     final i = player.currentIndex;
     if (i == null || i >= files.length) return 'Your music awaits';
@@ -84,7 +143,7 @@ class _MusicPageState extends State<MusicPage> {
     return Scaffold(
       backgroundColor: const Color(0xFF101218),
       appBar: AppBar(backgroundColor: Colors.transparent, title: const Text('AURA LOCAL'),
-        actions: [IconButton(onPressed: import, icon: const Icon(Icons.add_circle_outline))]),
+        actions: [IconButton(tooltip: 'Library', onPressed: showLibrary, icon: const Icon(Icons.library_music)), IconButton(tooltip: 'Import songs', onPressed: import, icon: const Icon(Icons.add_circle_outline))]),
       body: SafeArea(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
         const Spacer(),
         Expanded(flex: 5, child: Container(
@@ -109,10 +168,10 @@ class _MusicPageState extends State<MusicPage> {
           IconButton(color: shuffle ? Colors.tealAccent : Colors.white,
             onPressed: () async { shuffle = !shuffle; await player.setShuffleModeEnabled(shuffle); setState(() {}); },
             icon: const Icon(Icons.shuffle)),
-          IconButton(onPressed: files.isEmpty ? null : player.seekToPrevious, icon: const Icon(Icons.skip_previous), iconSize: 36),
+          IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1), icon: const Icon(Icons.skip_previous), iconSize: 36),
           IconButton.filled(onPressed: files.isEmpty ? import : () => player.playing ? player.pause() : player.play(),
             icon: Icon(player.playing ? Icons.pause : Icons.play_arrow), iconSize: 38),
-          IconButton(onPressed: files.isEmpty ? null : player.seekToNext, icon: const Icon(Icons.skip_next), iconSize: 36),
+          IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1), icon: const Icon(Icons.skip_next), iconSize: 36),
           Column(mainAxisSize: MainAxisSize.min, children: [
             IconButton(color: repeat == 0 ? Colors.white : Colors.tealAccent,
               onPressed: () async { repeat = (repeat + 1) % 3;
@@ -121,7 +180,21 @@ class _MusicPageState extends State<MusicPage> {
             Text(['OFF', 'ALL', 'ONE'][repeat], style: const TextStyle(fontSize: 10, color: Colors.white))
           ])
         ]),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          TextButton.icon(
+            onPressed: files.isEmpty ? null : () => seekSeconds(-10),
+            icon: const Icon(Icons.replay_10),
+            label: const Text('Back 10s')),
+          const SizedBox(width: 16),
+          TextButton.icon(
+            onPressed: files.isEmpty ? null : () => seekSeconds(10),
+            icon: const Icon(Icons.forward_10),
+            label: const Text('Forward 10s')),
+        ]),
+        TextButton.icon(onPressed: showLibrary,
+          icon: const Icon(Icons.library_music), label: const Text('Your Library')),
+        const SizedBox(height: 8),
         TextButton.icon(onPressed: () => showModalBottomSheet(context: context,
           builder: (_) => const SafeArea(child: Padding(padding: EdgeInsets.all(24),
             child: Text('EQ is planned, but is not implemented in this prototype.')))),
