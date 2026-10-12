@@ -61,6 +61,10 @@ class _MusicPageState extends State<MusicPage> {
   String? error;
   bool libraryHome = true;
   String query = '';
+  final favorites = <String>{};
+  bool favoritesOnly = false;
+  bool sortAscending = true;
+  double playbackSpeed = 1.0;
 
   @override
   void initState() {
@@ -90,7 +94,7 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
-    await manifest.writeAsString(jsonEncode(files));
+    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList()}));
   }
 
   Future<void> loadPlaylist({bool autoplay = false}) async {
@@ -105,14 +109,19 @@ class _MusicPageState extends State<MusicPage> {
     ]));
     await player.setShuffleModeEnabled(shuffle);
     await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]);
-    if (autoplay) await player.play();
+    if (autoplay) player.play();
   }
 
   Future<void> restoreLibrary() async {
     try {
       final manifest = await libraryManifest();
       if (!await manifest.exists()) return;
-      final saved = (jsonDecode(await manifest.readAsString()) as List).cast<String>();
+      final decoded = jsonDecode(await manifest.readAsString());
+      final saved = (decoded is List ? decoded : decoded['files'] as List).cast<String>();
+      favorites.clear();
+      if (decoded is Map && decoded['favorites'] is List) {
+        favorites.addAll((decoded['favorites'] as List).cast<String>());
+      }
       final existing = <String>[];
       for (final path in saved) {
         if (await File(path).exists()) existing.add(path);
@@ -155,7 +164,7 @@ class _MusicPageState extends State<MusicPage> {
       }
       if (imported == 0) throw Exception('No accessible audio files returned');
       await saveLibrary();
-      await loadPlaylist(autoplay: true);
+      await loadPlaylist();
       if (mounted) setState(() => error = null);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -182,50 +191,22 @@ class _MusicPageState extends State<MusicPage> {
     await player.seek(Duration(milliseconds: ms));
   }
 
-  void showLibrary() {
-    setState(() => libraryHome = true);
-    /* Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (libraryContext) => Scaffold(
-        backgroundColor: const Color(0xFF101218),
-        appBar: AppBar(title: const Text('Your Library'), backgroundColor: const Color(0xFF101218),
-          actions: [IconButton(icon: const Icon(Icons.add), onPressed: () async {
-            Navigator.of(libraryContext).pop();
-            await import();
-          })]),
-        body: files.isEmpty
-          ? Center(child: TextButton.icon(
-              onPressed: () async {
-                Navigator.of(libraryContext).pop();
-                await import();
-              },
-              icon: const Icon(Icons.add_circle_outline),
-              label: const Text('Import your first song')))
-          : ListView.builder(
-              itemCount: files.length,
-              itemBuilder: (_, index) {
-                final name = Uri.file(files[index]).pathSegments.last;
-                return ListTile(
-                  leading: Icon(
-                    index == player.currentIndex ? Icons.graphic_eq : Icons.music_note,
-                    color: Colors.tealAccent),
-                  title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
-                  subtitle: Text('Track ${index + 1}'),
-                  onTap: () async {
-                    Navigator.of(libraryContext).pop();
-                    await player.seek(Duration.zero, index: index);
-                    await player.play();
-                  },
-                );
-              },
-            ),
-      ),
-    )); */
+  void showLibrary() => setState(() => libraryHome = true);
+
+  String displayName(String path) {
+    final raw = Uri.file(path).pathSegments.last;
+    return raw.replaceFirst(RegExp(r'\\.(flac|mp3|m4a|wav|aac)$', caseSensitive: false), '');
+  }
+
+  Future<void> toggleFavorite(String path) async {
+    setState(() => favorites.contains(path) ? favorites.remove(path) : favorites.add(path));
+    await saveLibrary();
   }
 
   String get title {
     final i = player.currentIndex;
     if (i == null || i >= files.length) return 'Your music awaits';
-    return Uri.file(files[i]).pathSegments.last;
+    return displayName(files[i]);
   }
 
   String clock(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
@@ -237,7 +218,8 @@ class _MusicPageState extends State<MusicPage> {
     final max = length.inMilliseconds.toDouble().clamp(1.0, double.infinity);
     if (libraryHome) {
       final matches = List<int>.generate(files.length, (i) => i).where((i) =>
-        Uri.file(files[i]).pathSegments.last.toLowerCase().contains(query.toLowerCase())).toList();
+        (!favoritesOnly || favorites.contains(files[i])) && displayName(files[i]).toLowerCase().contains(query.toLowerCase())).toList()
+        ..sort((a, b) => sortAscending ? displayName(files[a]).toLowerCase().compareTo(displayName(files[b]).toLowerCase()) : displayName(files[b]).toLowerCase().compareTo(displayName(files[a]).toLowerCase()));
       return Scaffold(
         backgroundColor: const Color(0xFF101218),
         appBar: AppBar(
@@ -257,6 +239,14 @@ class _MusicPageState extends State<MusicPage> {
               ),
             ),
           ),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
+            ChoiceChip(label: const Text('All songs'), selected: !favoritesOnly, onSelected: (_) => setState(() => favoritesOnly = false)),
+            const SizedBox(width: 8),
+            ChoiceChip(label: const Text('Favorites'), selected: favoritesOnly, onSelected: (_) => setState(() => favoritesOnly = true)),
+            const Spacer(),
+            IconButton(tooltip: 'Change sort order', icon: Icon(sortAscending ? Icons.sort_by_alpha : Icons.sort), onPressed: () => setState(() => sortAscending = !sortAscending)),
+          ])),
+          Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6), child: Align(alignment: Alignment.centerLeft, child: Text('${files.length} songs', style: const TextStyle(color: Colors.white60)))),
           Expanded(child: files.isEmpty
             ? Center(child: FilledButton.icon(onPressed: import,
                 icon: const Icon(Icons.add), label: const Text('Import your music')))
@@ -266,8 +256,10 @@ class _MusicPageState extends State<MusicPage> {
                   final i = matches[row];
                   return ListTile(
                     leading: const Icon(Icons.music_note, color: Colors.tealAccent),
-                    title: Text(Uri.file(files[i]).pathSegments.last,
+                    title: Text(displayName(files[i]), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(i == player.currentIndex ? 'Now playing' : 'Local audio', style: const TextStyle(color: Colors.white60)),
+                    trailing: IconButton(tooltip: 'Favorite', icon: Icon(favorites.contains(files[i]) ? Icons.favorite : Icons.favorite_border, color: favorites.contains(files[i]) ? const Color(0xFF9BE9C6) : Colors.white70), onPressed: () => toggleFavorite(files[i])),
                     onTap: () async {
                       await player.seek(Duration.zero, index: i);
                       player.play();
@@ -279,9 +271,9 @@ class _MusicPageState extends State<MusicPage> {
           if (files.isNotEmpty) ListTile(
             tileColor: const Color(0xFF29483F),
             leading: const Icon(Icons.graphic_eq, color: Colors.tealAccent),
-            title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
             onTap: () => setState(() => libraryHome = false),
-            trailing: IconButton(
+            trailing: IconButton(color: Colors.white,
               icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
               onPressed: () => player.playing ? player.pause() : player.play()),
           ),
@@ -299,9 +291,11 @@ class _MusicPageState extends State<MusicPage> {
           decoration: BoxDecoration(borderRadius: BorderRadius.circular(24),
             gradient: const LinearGradient(colors: [Color(0xFF295548), Color(0xFF181B2B)])),
           child: const Center(child: Icon(Icons.music_note, size: 120, color: Color(0xFF9BE9C6))))),
-        const SizedBox(height: 30),
-        Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold, color: Colors.white)),
+        const SizedBox(height: 24),
+        Row(children: [Expanded(child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold, color: Colors.white))),
+          if (files.isNotEmpty) IconButton(tooltip: 'Favorite', onPressed: () => toggleFavorite(files[player.currentIndex ?? 0]), icon: Icon(favorites.contains(files[player.currentIndex ?? 0]) ? Icons.favorite : Icons.favorite_border, color: const Color(0xFF9BE9C6)))
+        ]),
         const SizedBox(height: 8),
         Text(files.isEmpty ? 'Tap + to import local audio' : '${files.length} local files',
           style: const TextStyle(color: Colors.white60)),
@@ -344,6 +338,13 @@ class _MusicPageState extends State<MusicPage> {
         TextButton.icon(onPressed: showLibrary,
           icon: const Icon(Icons.library_music), label: const Text('Your Library')),
         const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Text('Speed', style: TextStyle(color: Colors.white70)),
+          const SizedBox(width: 12),
+          DropdownButton<double>(value: playbackSpeed, dropdownColor: const Color(0xFF252A35),
+            items: [0.75, 1.0, 1.25, 1.5, 2.0].map((v) => DropdownMenuItem(value: v, child: Text('${v}×'))).toList(),
+            onChanged: (v) async { if (v == null) return; await player.setSpeed(v); setState(() => playbackSpeed = v); }),
+        ]),
         TextButton.icon(onPressed: () => showModalBottomSheet(context: context,
           builder: (_) => const SafeArea(child: Padding(padding: EdgeInsets.all(24),
             child: Text('EQ is planned, but is not implemented in this prototype.')))),
