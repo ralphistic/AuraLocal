@@ -98,7 +98,7 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
-    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists}));
+    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists, 'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed}));
   }
 
   Future<void> loadPlaylist({bool autoplay = false}) async {
@@ -113,6 +113,7 @@ class _MusicPageState extends State<MusicPage> {
     ]));
     await player.setShuffleModeEnabled(shuffle);
     await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]);
+    await player.setSpeed(playbackSpeed);
     if (autoplay) player.play();
   }
 
@@ -125,6 +126,13 @@ class _MusicPageState extends State<MusicPage> {
       favorites.clear();
       if (decoded is Map && decoded['favorites'] is List) {
         favorites.addAll((decoded['favorites'] as List).cast<String>());
+      }
+      if (decoded is Map) {
+        shuffle = decoded['shuffle'] == true;
+        final savedRepeat = decoded['repeat'];
+        if (savedRepeat is int && savedRepeat >= 0 && savedRepeat <= 2) repeat = savedRepeat;
+        final savedSpeed = decoded['speed'];
+        if (savedSpeed is num && [0.75, 1.0, 1.25, 1.5, 2.0].contains(savedSpeed.toDouble())) playbackSpeed = savedSpeed.toDouble();
       }
       playlists.clear();
       if (decoded is Map && decoded['playlists'] is Map) {
@@ -482,7 +490,7 @@ class _MusicPageState extends State<MusicPage> {
         const SizedBox(height: 12),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           IconButton(color: shuffle ? Colors.tealAccent : Colors.white,
-            onPressed: () async { shuffle = !shuffle; await player.setShuffleModeEnabled(shuffle); setState(() {}); },
+            onPressed: () async { shuffle = !shuffle; await player.setShuffleModeEnabled(shuffle); await saveLibrary(); setState(() {}); },
             icon: const Icon(Icons.shuffle)),
           IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1), icon: const Icon(Icons.skip_previous), iconSize: 36),
           IconButton.filled(onPressed: files.isEmpty ? import : () => player.playing ? player.pause() : player.play(),
@@ -491,7 +499,7 @@ class _MusicPageState extends State<MusicPage> {
           Column(mainAxisSize: MainAxisSize.min, children: [
             IconButton(color: repeat == 0 ? Colors.white : Colors.tealAccent,
               onPressed: () async { repeat = (repeat + 1) % 3;
-                await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]); setState(() {}); },
+                await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]); await saveLibrary(); setState(() {}); },
               icon: Icon(repeat == 2 ? Icons.repeat_one : Icons.repeat)),
             Text(['OFF', 'ALL', 'ONE'][repeat], style: const TextStyle(fontSize: 10, color: Colors.white))
           ])
@@ -515,7 +523,7 @@ class _MusicPageState extends State<MusicPage> {
           const SizedBox(width: 12),
           DropdownButton<double>(value: playbackSpeed, dropdownColor: const Color(0xFF252A35),
             items: [0.75, 1.0, 1.25, 1.5, 2.0].map((v) => DropdownMenuItem(value: v, child: Text('${v}×'))).toList(),
-            onChanged: (v) async { if (v == null) return; await player.setSpeed(v); setState(() => playbackSpeed = v); }),
+            onChanged: (v) async { if (v == null) return; await player.setSpeed(v); setState(() => playbackSpeed = v); await saveLibrary(); }),
         ]),
         TextButton.icon(onPressed: () => showModalBottomSheet(context: context,
           builder: (_) => const SafeArea(child: Padding(padding: EdgeInsets.all(24),
