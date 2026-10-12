@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -77,6 +78,27 @@ class _MusicPageState extends State<MusicPage> {
   double pitchCents = 0.0;
   int pitchSemitones = 0;
   bool nativePitchPreview = false;
+  bool nativePaused = false;
+  Duration nativePosition = Duration.zero;
+  Timer? nativePositionTimer;
+  bool pollingNative = false;
+
+  Future<void> togglePlayback() async {
+    if (nativePitchPreview) {
+      await nativeDsp.invokeMethod(nativePaused ? 'resumeFile' : 'pauseFile');
+      nativePaused = !nativePaused;
+      if (mounted) setState(() {});
+      return;
+    }
+    if (pitchSemitones != 0 || pitchCents != 0 || playbackSpeed != 1) {
+      await startNativePitchPreview();
+    } else if (player.playing) {
+      await player.pause();
+    } else {
+      unawaited(player.play());
+    }
+  }
+
 
   Future<void> startNativePitchPreview() async {
     final sequence = player.sequence;
@@ -96,10 +118,13 @@ class _MusicPageState extends State<MusicPage> {
     try {
       // Pause AVPlayer first so it cannot compete with the native output graph.
       await player.pause();
+      await player.setSpeed(1);
       await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchSemitones * 100 + pitchCents});
       final started = await nativeDsp.invokeMethod<bool>('playFile', {'path': path, 'position': position});
       if (started != true) throw PlatformException(code: 'NATIVE_AUDIO', message: 'Native audio did not confirm playback');
       nativePitchPreview = true;
+      nativePaused = false;
+      nativePosition = Duration(milliseconds: (position * 1000).round());
       if (mounted) setState(() => error = null);
     } on PlatformException catch (e) {
       try { await nativeDsp.invokeMethod('stopFile'); } catch (_) {}
@@ -121,15 +146,21 @@ class _MusicPageState extends State<MusicPage> {
       await nativeDsp.invokeMethod('stopFile');
     } catch (_) {}
     nativePitchPreview = false;
+    nativePaused = false;
     await player.seek(Duration(milliseconds: (position * 1000).round()));
-    await player.play();
+    await player.setSpeed(playbackSpeed);
+    unawaited(player.play());
     if (mounted) setState(() {});
   }
 
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
 
   Future<void> updateNativePitchTempo() async {
-    if (!nativePitchPreview && (pitchSemitones != 0 || pitchCents != 0)) {
+    if (nativePitchPreview && pitchSemitones == 0 && pitchCents == 0 && playbackSpeed == 1) {
+      await stopNativePitchPreview();
+      return;
+    }
+    if (!nativePitchPreview && (pitchSemitones != 0 || pitchCents != 0 || playbackSpeed != 1)) {
       await startNativePitchPreview();
       return;
     }
@@ -149,6 +180,16 @@ class _MusicPageState extends State<MusicPage> {
     super.initState();
     AudioSession.instance.then((s) => s.configure(const AudioSessionConfiguration.music()));
     restoreLibrary();
+    nativePositionTimer = Timer.periodic(const Duration(milliseconds: 250), (_) async {
+      if (!nativePitchPreview || pollingNative) return;
+      pollingNative = true;
+      try {
+        final seconds = (await nativeDsp.invokeMethod<num>('getPosition'))?.toDouble();
+        if (seconds != null && mounted && nativePitchPreview) {
+          setState(() => nativePosition = Duration(milliseconds: (seconds * 1000).round()));
+        }
+      } catch (_) {} finally { pollingNative = false; }
+    });
     player.playerStateStream.listen((_) {
       // Never permit both output engines to remain active.
       if (player.playing && nativePitchPreview) {
@@ -163,7 +204,7 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   @override
-  void dispose() { if (nativePitchPreview) nativeDsp.invokeMethod('stopFile'); player.dispose(); super.dispose(); }
+  void dispose() { nativePositionTimer?.cancel(); if (nativePitchPreview) nativeDsp.invokeMethod('stopFile'); player.dispose(); super.dispose(); }
 
   Future<Directory> musicDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
@@ -330,7 +371,7 @@ class _MusicPageState extends State<MusicPage> {
             itemExtent: 44, onSelectedItemChanged: (i) async {
               final value = (i + 50) / 100.0;
               refresh(() => playbackSpeed = value);
-              await player.setSpeed(value);
+              if (!nativePitchPreview) await player.setSpeed(value);
               await updateNativePitchTempo();
               await saveLibrary();
             }, children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))],
@@ -347,15 +388,23 @@ class _MusicPageState extends State<MusicPage> {
     }
     await player.pause();
     await player.seek(Duration.zero, index: index);
-    await player.play();
+    nativePosition = Duration.zero;
+    if (pitchSemitones != 0 || pitchCents != 0 || playbackSpeed != 1) {
+      await startNativePitchPreview();
+    } else {
+      unawaited(player.play());
+    }
   }
 
   Future<void> skipTrack(int delta) async {
     if (files.isEmpty) return;
     if (nativePitchPreview) { await nativeDsp.invokeMethod('stopFile'); nativePitchPreview = false; }
     final current = player.currentIndex ?? 0;
-    if (delta < 0 && player.position.inSeconds > 3) {
-      await player.seek(Duration.zero);
+    if (delta < 0 && (nativePitchPreview ? nativePosition : player.position).inSeconds > 3) {
+      if (nativePitchPreview) {
+        await nativeDsp.invokeMethod('seekFile', {'position': 0.0});
+        nativePosition = Duration.zero;
+      } else { await player.seek(Duration.zero); }
       return;
     }
     final target = (current + delta + files.length) % files.length;
@@ -372,6 +421,7 @@ class _MusicPageState extends State<MusicPage> {
     final ms = target.inMilliseconds.clamp(0, duration.inMilliseconds);
     if (nativePitchPreview) {
       await nativeDsp.invokeMethod('seekFile', {'position': ms / 1000.0});
+      nativePosition = Duration(milliseconds: ms);
     } else {
       await player.seek(Duration(milliseconds: ms));
     }
@@ -548,7 +598,7 @@ class _MusicPageState extends State<MusicPage> {
   @override
   Widget build(BuildContext context) {
     final length = player.duration ?? Duration.zero;
-    final pos = draggingPlayer && scrubPosition != null ? Duration(milliseconds: scrubPosition!.round()) : player.position;
+    final pos = draggingPlayer && scrubPosition != null ? Duration(milliseconds: scrubPosition!.round()) : (nativePitchPreview ? nativePosition : player.position);
     final max = length.inMilliseconds.toDouble().clamp(1.0, double.infinity);
     if (libraryHome) {
       final matches = List<int>.generate(files.length, (i) => i).where((i) =>
@@ -617,8 +667,8 @@ class _MusicPageState extends State<MusicPage> {
             title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
             onTap: () => setState(() => libraryHome = false),
             trailing: IconButton(color: Colors.white,
-              icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
-              onPressed: () async { if (nativePitchPreview) { await stopNativePitchPreview(); await player.pause(); } else { player.playing ? await player.pause() : await player.play(); } }),
+              icon: Icon((nativePitchPreview ? !nativePaused : player.playing) ? Icons.pause : Icons.play_arrow),
+              onPressed: togglePlayback),
           ),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
         ])),
@@ -650,7 +700,10 @@ class _MusicPageState extends State<MusicPage> {
           onChangeStart: length == Duration.zero ? null : (v) => setState(() { draggingPlayer = true; scrubPosition = v; }),
           onChanged: length == Duration.zero ? null : (v) => setState(() => scrubPosition = v),
           onChangeEnd: length == Duration.zero ? null : (v) async {
-            await player.seek(Duration(milliseconds: v.round()));
+            if (nativePitchPreview) {
+              await nativeDsp.invokeMethod('seekFile', {'position': v / 1000.0});
+              nativePosition = Duration(milliseconds: v.round());
+            } else { await player.seek(Duration(milliseconds: v.round())); }
             if (mounted) setState(() { draggingPlayer = false; scrubPosition = null; });
           }),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -664,7 +717,7 @@ class _MusicPageState extends State<MusicPage> {
             icon: const Icon(Icons.shuffle)),
           IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1), icon: const Icon(Icons.skip_previous), iconSize: 36),
           IconButton.filled(onPressed: files.isEmpty ? import : () async { if (nativePitchPreview) { await stopNativePitchPreview(); await player.pause(); } else { player.playing ? await player.pause() : await player.play(); } },
-            icon: Icon(player.playing ? Icons.pause : Icons.play_arrow), iconSize: 38),
+            icon: Icon((nativePitchPreview ? !nativePaused : player.playing) ? Icons.pause : Icons.play_arrow), iconSize: 38),
           IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1), icon: const Icon(Icons.skip_next), iconSize: 36),
           Column(mainAxisSize: MainAxisSize.min, children: [
             IconButton(color: repeat == 0 ? Colors.white : Colors.tealAccent,
@@ -693,7 +746,7 @@ class _MusicPageState extends State<MusicPage> {
           const SizedBox(width: 12),
           DropdownButton<double>(value: playbackSpeed, dropdownColor: const Color(0xFF252A35),
             items: [0.75, 1.0, 1.25, 1.5, 2.0].map((v) => DropdownMenuItem(value: v, child: Text('${v}×'))).toList(),
-            onChanged: (v) async { if (v == null) return; if (!nativePitchPreview) await player.setSpeed(v); setState(() => playbackSpeed = v); await updateNativePitchTempo(); await saveLibrary(); }),
+            onChanged: (v) async { if (v == null) return; setState(() => playbackSpeed = v); await updateNativePitchTempo(); await saveLibrary(); }),
         ]),
         TextButton.icon(onPressed: () => showModalBottomSheet<void>(
           context: context,
@@ -703,13 +756,13 @@ class _MusicPageState extends State<MusicPage> {
               mainAxisSize: MainAxisSize.min, children: [
                 const Text('Pitch / tempo engine', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                const Text('Native pitch preview plays the selected file through the iOS audio engine. It temporarily pauses normal playback. FLAC support depends on iOS decoding.', textAlign: TextAlign.center),
+                const Text('Signalsmith Stretch pitch and tempo processing. Playback uses the native engine while processing is enabled.', textAlign: TextAlign.center),
                 TextButton.icon(onPressed: () async {
                   if (nativePitchPreview) { await stopNativePitchPreview(); } else { await startNativePitchPreview(); }
                   refresh(() {});
                 }, icon: Icon(nativePitchPreview ? Icons.stop_circle : Icons.play_circle),
-                  label: Text(nativePitchPreview ? 'Stop native pitch preview' : 'Start native pitch preview (audible pitch)')),
-                if (nativePitchPreview) const Text('Preview mode: use the pitch and tempo controls below. Stop preview to return to regular player.', textAlign: TextAlign.center),
+                  label: Text(nativePitchPreview ? 'Return to original audio' : 'Play with Signalsmith pitch')),
+                if (nativePitchPreview) const Text('Pitch processing active.', textAlign: TextAlign.center),
                 const SizedBox(height: 20),
                 TextButton(onPressed: () => showPitchWheel(refresh), child: Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones, ${pitchCents.toStringAsFixed(0)} cents')),
                 Text('Semitones: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones'),
@@ -724,21 +777,19 @@ class _MusicPageState extends State<MusicPage> {
                 Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
                   onChanged: (v) { refresh(() => playbackSpeed = v); setState(() {}); },
                   onChangeEnd: (v) async {
-                    await player.setSpeed(v);
                     await updateNativePitchTempo();
                     await saveLibrary();
                   }),
                 TextButton(onPressed: () async {
                   refresh(() { pitchCents = 0; pitchSemitones = 0; playbackSpeed = 1; });
                   setState(() {});
-                  await player.setSpeed(1);
                   await updateNativePitchTempo();
                   await saveLibrary();
                 }, child: const Text('Reset pitch and tempo')),
               ],
             )),
           )),
-        ), icon: const Icon(Icons.tune), label: const Text('Pitch / tempo (experimental)')),
+        ), icon: const Icon(Icons.tune), label: const Text('Pitch / tempo')),
         TextButton.icon(onPressed: () => showModalBottomSheet(context: context,
           builder: (_) => const SafeArea(child: Padding(padding: EdgeInsets.all(24),
             child: Text('EQ is planned, but is not implemented in this prototype.')))),
