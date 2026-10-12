@@ -15,7 +15,36 @@ Future<void> main() async {
     androidNotificationChannelName: 'AuraLocal playback',
     androidNotificationOngoing: true,
   );
-  runApp(const MaterialApp(debugShowCheckedModeBanner: false, home: MusicPage()));
+  runApp(MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF101218),
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF9BE9C6),
+        brightness: Brightness.dark,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFF101218),
+        foregroundColor: Colors.white,
+      ),
+      listTileTheme: const ListTileThemeData(
+        textColor: Colors.white,
+        iconColor: Color(0xFF9BE9C6),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF252A35),
+        hintStyle: const TextStyle(color: Color(0xFFB7BDC9)),
+        prefixIconColor: const Color(0xFFB7BDC9),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    ),
+    home: const MusicPage(),
+  ));
 }
 
 class MusicPage extends StatefulWidget {
