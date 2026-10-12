@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:file_picker/file_picker.dart';
@@ -32,6 +35,7 @@ class _MusicPageState extends State<MusicPage> {
   void initState() {
     super.initState();
     AudioSession.instance.then((s) => s.configure(const AudioSessionConfiguration.music()));
+    restoreLibrary();
     player.playerStateStream.listen((_) { if (mounted) setState(() {}); });
     player.currentIndexStream.listen((_) { if (mounted) setState(() {}); });
     player.positionStream.listen((_) { if (mounted) setState(() {}); });
@@ -41,31 +45,90 @@ class _MusicPageState extends State<MusicPage> {
   @override
   void dispose() { player.dispose(); super.dispose(); }
 
+  Future<Directory> musicDirectory() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/Music');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  Future<File> libraryManifest() async {
+    final docs = await getApplicationDocumentsDirectory();
+    return File('${docs.path}/auralocal-library.json');
+  }
+
+  Future<void> saveLibrary() async {
+    final manifest = await libraryManifest();
+    await manifest.writeAsString(jsonEncode(files));
+  }
+
+  Future<void> loadPlaylist({bool autoplay = false}) async {
+    if (files.isEmpty) return;
+    await player.setAudioSource(ConcatenatingAudioSource(children: [
+      for (final f in files)
+        AudioSource.uri(Uri.file(f), tag: MediaItem(
+          id: f,
+          title: Uri.file(f).pathSegments.last,
+          artist: 'Unknown Artist',
+        )),
+    ]));
+    await player.setShuffleModeEnabled(shuffle);
+    await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]);
+    if (autoplay) await player.play();
+  }
+
+  Future<void> restoreLibrary() async {
+    try {
+      final manifest = await libraryManifest();
+      if (!await manifest.exists()) return;
+      final saved = (jsonDecode(await manifest.readAsString()) as List).cast<String>();
+      final existing = <String>[];
+      for (final path in saved) {
+        if (await File(path).exists()) existing.add(path);
+      }
+      files..clear()..addAll(existing);
+      await loadPlaylist();
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) setState(() => error = 'Could not restore library: $e');
+    }
+  }
+
   Future<void> import() async {
     try {
       final picked = await FilePicker.platform.pickFiles(
-        type: FileType.custom, allowedExtensions: ['flac', 'mp3', 'm4a', 'wav', 'aac'], allowMultiple: true);
+        type: FileType.custom,
+        allowedExtensions: ['flac', 'mp3', 'm4a', 'wav', 'aac'],
+        allowMultiple: true,
+      );
       if (picked == null) return;
-      final paths = picked.files.map((f) => f.path).whereType<String>().toList();
-      if (paths.isEmpty) throw Exception('No accessible audio files returned');
-      files.addAll(paths);
-      await player.setAudioSource(ConcatenatingAudioSource(children: [
-        for (final f in files)
-          AudioSource.uri(
-            Uri.file(f),
-            tag: MediaItem(
-              id: f,
-              title: Uri.file(f).pathSegments.last,
-              artist: 'AuraLocal',
-              album: 'Local Music',
-            ),
-          ),
-      ]));
-      await player.setShuffleModeEnabled(shuffle);
-      await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]);
-      await player.play();
-      setState(() => error = null);
-    } catch (e) { setState(() => error = e.toString()); }
+      final directory = await musicDirectory();
+      var imported = 0;
+      for (final entry in picked.files) {
+        final source = entry.path;
+        if (source == null) continue;
+        final original = File(source);
+        if (!await original.exists()) continue;
+        final safeName = entry.name.replaceAll(RegExp(r'[^a-zA-Z0-9._ -]'), '_');
+        var target = File('${directory.path}/$safeName');
+        var suffix = 1;
+        while (await target.exists()) {
+          final dot = safeName.lastIndexOf('.');
+          final base = dot > 0 ? safeName.substring(0, dot) : safeName;
+          final ext = dot > 0 ? safeName.substring(dot) : '';
+          target = File('${directory.path}/${base}_${suffix++}$ext');
+        }
+        await original.copy(target.path);
+        files.add(target.path);
+        imported++;
+      }
+      if (imported == 0) throw Exception('No accessible audio files returned');
+      await saveLibrary();
+      await loadPlaylist(autoplay: true);
+      if (mounted) setState(() => error = null);
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    }
   }
 
   Future<void> skipTrack(int delta) async {
