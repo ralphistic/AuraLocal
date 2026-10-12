@@ -8,23 +8,26 @@ final class AuraDspGraph {
     let timePitch = AVAudioUnitTimePitch()
     private(set) var configured = false
     private var activeFile: AVAudioFile?
+    private var originalURL: URL?
+    private var stretchTempo: Double = 1
+    private var stretchCents: Double = 0
     private var startFrame: AVAudioFramePosition = 0
     private var pausedFrame: AVAudioFramePosition = 0
     private var sampleRate: Double = 44100
     private var isPaused = false
 
     var positionSeconds: Double {
-        if isPaused { return Double(pausedFrame) / sampleRate }
+        if isPaused { return Double(pausedFrame) / sampleRate * stretchTempo }
         guard let renderTime = source.lastRenderTime,
               let playerTime = source.playerTime(forNodeTime: renderTime) else {
-            return Double(startFrame) / sampleRate
+            return Double(startFrame) / sampleRate * stretchTempo
         }
-        return Double(startFrame + AVAudioFramePosition(playerTime.sampleTime)) / sampleRate
+        return Double(startFrame + AVAudioFramePosition(playerTime.sampleTime)) / sampleRate * stretchTempo
     }
 
     func pausePlayback() {
         guard source.isPlaying else { return }
-        pausedFrame = AVAudioFramePosition(positionSeconds * sampleRate)
+        pausedFrame = AVAudioFramePosition(positionSeconds / stretchTempo * sampleRate)
         source.pause()
         isPaused = true
     }
@@ -34,8 +37,7 @@ final class AuraDspGraph {
     }
 
     func seekPlayback(to seconds: Double) throws {
-        guard let file = activeFile else { return }
-        let path = file.url.path
+        guard let path = originalURL?.path else { return }
         let wasPlaying = source.isPlaying
         try playFile(at: path, positionSeconds: seconds)
         if !wasPlaying { pausePlayback() }
@@ -48,9 +50,12 @@ final class AuraDspGraph {
         try session.setCategory(.playback, mode: .default, options: [])
         try session.setActive(true)
 #endif
-        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        let original = URL(fileURLWithPath: path)
+        let rendered = try AuraStretchRenderer.render(source: original, tempo: stretchTempo, cents: stretchCents)
+        let file = try AVAudioFile(forReading: rendered)
+        originalURL = original
         source.stop()
-        let start = AVAudioFramePosition(max(0, positionSeconds) * file.processingFormat.sampleRate)
+        let start = AVAudioFramePosition(max(0, positionSeconds / stretchTempo) * file.processingFormat.sampleRate)
         guard start < file.length else { throw NSError(domain: "AuraDSP", code: 3, userInfo: [NSLocalizedDescriptionKey: "Start position exceeds file length"]) }
         activeFile = file
         sampleRate = file.processingFormat.sampleRate
@@ -66,6 +71,7 @@ final class AuraDspGraph {
     func stopPlayback() {
         source.stop()
         activeFile = nil
+        originalURL = nil
         isPaused = false
         startFrame = 0
         pausedFrame = 0
@@ -88,6 +94,7 @@ final class AuraDspGraph {
         timePitch.pitch = 0
         // Maximum analysis overlap reduces artifacts at the cost of CPU usage.
         timePitch.overlap = 32
+        timePitch.bypass = true
         engine.connect(source, to: equalizer, format: nil)
         engine.connect(equalizer, to: timePitch, format: nil)
         engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
@@ -115,7 +122,17 @@ final class AuraDspGraph {
                 userInfo: [NSLocalizedDescriptionKey: "Invalid tempo or pitch"])
         }
         try configure()
-        timePitch.rate = tempo
-        timePitch.pitch = semitones * 100
+        let nextTempo = Double(tempo)
+        let nextCents = Double(semitones * 100)
+        if abs(nextTempo - stretchTempo) < 0.00001 && abs(nextCents - stretchCents) < 0.00001 { return }
+        let oldPosition = positionSeconds
+        let oldPath = originalURL?.path
+        let wasPlaying = source.isPlaying
+        stretchTempo = nextTempo
+        stretchCents = nextCents
+        if let path = oldPath {
+            try playFile(at: path, positionSeconds: oldPosition)
+            if !wasPlaying { pausePlayback() }
+        }
     }
 }
