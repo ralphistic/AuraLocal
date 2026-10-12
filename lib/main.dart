@@ -62,6 +62,8 @@ class _MusicPageState extends State<MusicPage> {
   bool libraryHome = true;
   String query = '';
   final favorites = <String>{};
+  final playlists = <String, List<String>>{};
+  String? activePlaylist;
   bool favoritesOnly = false;
   bool sortAscending = true;
   double playbackSpeed = 1.0;
@@ -94,7 +96,7 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
-    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList()}));
+    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists}));
   }
 
   Future<void> loadPlaylist({bool autoplay = false}) async {
@@ -122,11 +124,18 @@ class _MusicPageState extends State<MusicPage> {
       if (decoded is Map && decoded['favorites'] is List) {
         favorites.addAll((decoded['favorites'] as List).cast<String>());
       }
+      playlists.clear();
+      if (decoded is Map && decoded['playlists'] is Map) {
+        (decoded['playlists'] as Map).forEach((name, paths) {
+          if (name is String && paths is List) playlists[name] = paths.whereType<String>().toList();
+        });
+      }
       final existing = <String>[];
       for (final path in saved) {
         if (await File(path).exists()) existing.add(path);
       }
       files..clear()..addAll(existing);
+      for (final songs in playlists.values) { songs.removeWhere((path) => !files.contains(path)); }
       await loadPlaylist();
       if (mounted) setState(() {});
     } catch (e) {
@@ -201,6 +210,108 @@ class _MusicPageState extends State<MusicPage> {
   Future<void> toggleFavorite(String path) async {
     setState(() => favorites.contains(path) ? favorites.remove(path) : favorites.add(path));
     await saveLibrary();
+  }
+
+  Future<void> createPlaylist() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+      title: const Text('New playlist'),
+      content: TextField(controller: controller, autofocus: true, maxLength: 60,
+        decoration: const InputDecoration(hintText: 'Playlist name')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Create')),
+      ],
+    ));
+    controller.dispose();
+    if (name == null || name.isEmpty || playlists.containsKey(name)) return;
+    setState(() { playlists[name] = []; activePlaylist = name; });
+    await saveLibrary();
+  }
+
+  Future<void> addToPlaylist(String path) async {
+    if (playlists.isEmpty) await createPlaylist();
+    if (!mounted || playlists.isEmpty) return;
+    final selected = await showModalBottomSheet<String>(context: context, builder: (context) =>
+      SafeArea(child: ListView(shrinkWrap: true, children: [
+        const ListTile(title: Text('Add to playlist')),
+        for (final name in playlists.keys)
+          ListTile(leading: const Icon(Icons.playlist_add), title: Text(name),
+            onTap: () => Navigator.pop(context, name)),
+      ])));
+    if (selected == null) return;
+    setState(() { if (!playlists[selected]!.contains(path)) playlists[selected]!.add(path); });
+    await saveLibrary();
+  }
+
+  Future<void> renamePlaylist(String oldName) async {
+    final controller = TextEditingController(text: oldName);
+    final name = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Rename playlist'),
+      content: TextField(controller: controller, autofocus: true),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Save')),
+      ],
+    ));
+    controller.dispose();
+    if (name == null || name.isEmpty || (name != oldName && playlists.containsKey(name))) return;
+    setState(() {
+      final songs = playlists.remove(oldName);
+      if (songs != null) playlists[name] = songs;
+      if (activePlaylist == oldName) activePlaylist = name;
+    });
+    await saveLibrary();
+  }
+
+  void playlistMenu(String name) {
+    showModalBottomSheet<void>(context: context, builder: (context) => SafeArea(child: Column(
+      mainAxisSize: MainAxisSize.min, children: [
+        ListTile(leading: const Icon(Icons.edit), title: const Text('Rename playlist'), onTap: () {
+          Navigator.pop(context); renamePlaylist(name);
+        }),
+        ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Delete playlist'), onTap: () async {
+          Navigator.pop(context);
+          setState(() { playlists.remove(name); if (activePlaylist == name) activePlaylist = null; });
+          await saveLibrary();
+        }),
+      ])));
+  }
+
+  Future<void> removeTrack(String path) async {
+    final wasPlaying = files.indexOf(path) == player.currentIndex;
+    setState(() {
+      files.remove(path);
+      favorites.remove(path);
+      for (final songs in playlists.values) { songs.remove(path); }
+    });
+    await saveLibrary();
+    if (files.isEmpty) { await player.stop(); await player.clearAudioSources(); }
+    else { await loadPlaylist(); if (wasPlaying) await player.pause(); }
+  }
+
+  void trackMenu(String path) {
+    showModalBottomSheet<void>(context: context, builder: (context) => SafeArea(child: Column(
+      mainAxisSize: MainAxisSize.min, children: [
+        ListTile(leading: const Icon(Icons.playlist_add), title: const Text('Add to playlist'),
+          onTap: () { Navigator.pop(context); addToPlaylist(path); }),
+        ListTile(leading: Icon(favorites.contains(path) ? Icons.favorite : Icons.favorite_border),
+          title: Text(favorites.contains(path) ? 'Remove favorite' : 'Add favorite'),
+          onTap: () { Navigator.pop(context); toggleFavorite(path); }),
+        ListTile(leading: const Icon(Icons.remove_circle_outline), title: const Text('Remove from library'),
+          onTap: () { Navigator.pop(context); removeTrack(path); }),
+      ])));
+  }
+
+  void showQueue() {
+    showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (context) =>
+      SafeArea(child: FractionallySizedBox(heightFactor: 0.7, child: Column(children: [
+        const ListTile(title: Text('Playback queue')),
+        Expanded(child: ListView.builder(itemCount: files.length, itemBuilder: (_, i) =>
+          ListTile(leading: Icon(i == player.currentIndex ? Icons.graphic_eq : Icons.music_note),
+            title: Text(displayName(files[i]), maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: () { Navigator.pop(context); player.seek(Duration.zero, index: i); player.play(); }))),
+      ]))));
   }
 
   String get title {
