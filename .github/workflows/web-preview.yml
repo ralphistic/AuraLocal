@@ -1,0 +1,48 @@
+name: AuraLocal browser preview
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/web_preview.dart'
+      - 'pubspec.yaml'
+      - '.github/workflows/web-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: auralocal-web-preview
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate web platform
+        run: |
+          flutter create --platforms=web --project-name auralocal .
+          flutter pub get
+      - name: Compile browser preview
+        run: flutter build web --release --target lib/web_preview.dart --base-href /AuraLocal/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AuraLocal-browser-preview
+          path: build/web
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
