@@ -29,10 +29,24 @@ jobs:
           from pathlib import Path
           p = Path('ios/Runner.xcodeproj/project.pbxproj')
           data = p.read_text()
-          # Flutter-generated Xcode project uses synchronized source groups on modern Xcode.
-          # Swift source is staged for the native target integration pass.
-          print('DSP Swift staged; target integration requires Xcode project membership validation')
+          print('DSP Swift staged for native target integration')
           PY
+      - name: Include DSP source in Runner Xcode target
+        run: |
+          gem install xcodeproj --no-document
+          ruby - <<'RUBY'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
+          target = project.targets.find { |t| t.name == 'Runner' }
+          abort 'Runner target not found' unless target
+          group = project.main_group.find_subpath('Runner', false)
+          abort 'Runner group not found' unless group
+          reference = group.files.find { |f| f.path == 'AuraDspGraph.swift' } || group.new_file('AuraDspGraph.swift')
+          unless target.source_build_phase.files_references.include?(reference)
+            target.source_build_phase.add_file_reference(reference)
+          end
+          project.save
+          RUBY
       - name: Enable background audio
         run: |
           /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes array' ios/Runner/Info.plist || true
