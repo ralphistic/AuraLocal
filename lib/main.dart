@@ -526,7 +526,7 @@ class _MusicPageState extends State<MusicPage> {
             children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))],
           )),
         ]),
-      ))));
+      )));
   }
 
   void showAudioSettings() {
