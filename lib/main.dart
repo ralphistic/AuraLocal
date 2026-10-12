@@ -329,14 +329,14 @@ class _MusicPageState extends State<MusicPage> {
     final max = length.inMilliseconds.toDouble().clamp(1.0, double.infinity);
     if (libraryHome) {
       final matches = List<int>.generate(files.length, (i) => i).where((i) =>
-        (!favoritesOnly || favorites.contains(files[i])) && displayName(files[i]).toLowerCase().contains(query.toLowerCase())).toList()
+        (activePlaylist == null || (playlists[activePlaylist]?.contains(files[i]) ?? false)) && (!favoritesOnly || favorites.contains(files[i])) && displayName(files[i]).toLowerCase().contains(query.toLowerCase())).toList()
         ..sort((a, b) => sortAscending ? displayName(files[a]).toLowerCase().compareTo(displayName(files[b]).toLowerCase()) : displayName(files[b]).toLowerCase().compareTo(displayName(files[a]).toLowerCase()));
       return Scaffold(
         backgroundColor: const Color(0xFF101218),
         appBar: AppBar(
           title: const Text('Your Library'),
           backgroundColor: const Color(0xFF101218),
-          actions: [IconButton(tooltip: 'Import music', icon: const Icon(Icons.add), onPressed: import)],
+          actions: [IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add), onPressed: createPlaylist), IconButton(tooltip: 'Import music', icon: const Icon(Icons.add), onPressed: import)],
         ),
         body: SafeArea(child: Column(children: [
           Padding(padding: const EdgeInsets.all(16),
@@ -350,6 +350,16 @@ class _MusicPageState extends State<MusicPage> {
               ),
             ),
           ),
+          SizedBox(height: 52, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+            ChoiceChip(label: const Text('Library'), selected: activePlaylist == null, onSelected: (_) => setState(() => activePlaylist = null)),
+            const SizedBox(width: 8),
+            for (final name in playlists.keys) ...[
+              InputChip(label: Text(name), selected: activePlaylist == name,
+                onSelected: (_) => setState(() => activePlaylist = name),
+                onDeleted: () => playlistMenu(name), deleteIcon: const Icon(Icons.more_horiz, size: 18)),
+              const SizedBox(width: 8),
+            ],
+          ])),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
             ChoiceChip(label: const Text('All songs'), selected: !favoritesOnly, onSelected: (_) => setState(() => favoritesOnly = false)),
             const SizedBox(width: 8),
@@ -357,7 +367,7 @@ class _MusicPageState extends State<MusicPage> {
             const Spacer(),
             IconButton(tooltip: 'Change sort order', icon: Icon(sortAscending ? Icons.sort_by_alpha : Icons.sort), onPressed: () => setState(() => sortAscending = !sortAscending)),
           ])),
-          Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6), child: Align(alignment: Alignment.centerLeft, child: Text('${files.length} songs', style: const TextStyle(color: Colors.white60)))),
+          Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6), child: Align(alignment: Alignment.centerLeft, child: Text(activePlaylist == null ? '${files.length} songs' : '${activePlaylist!} • ${matches.length} songs', style: const TextStyle(color: Colors.white60)))),
           Expanded(child: files.isEmpty
             ? Center(child: FilledButton.icon(onPressed: import,
                 icon: const Icon(Icons.add), label: const Text('Import your music')))
@@ -370,7 +380,7 @@ class _MusicPageState extends State<MusicPage> {
                     title: Text(displayName(files[i]), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(i == player.currentIndex ? 'Now playing' : 'Local audio', style: const TextStyle(color: Colors.white60)),
-                    trailing: IconButton(tooltip: 'Favorite', icon: Icon(favorites.contains(files[i]) ? Icons.favorite : Icons.favorite_border, color: favorites.contains(files[i]) ? const Color(0xFF9BE9C6) : Colors.white70), onPressed: () => toggleFavorite(files[i])),
+                    trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert, color: Colors.white70), onPressed: () => trackMenu(files[i])),
                     onTap: () async {
                       await player.seek(Duration.zero, index: i);
                       player.play();
@@ -395,7 +405,7 @@ class _MusicPageState extends State<MusicPage> {
     return Scaffold(
       backgroundColor: const Color(0xFF101218),
       appBar: AppBar(backgroundColor: Colors.transparent, title: const Text('Now Playing'),
-        actions: [IconButton(tooltip: 'Library', onPressed: showLibrary, icon: const Icon(Icons.library_music)), IconButton(tooltip: 'Import songs', onPressed: import, icon: const Icon(Icons.add_circle_outline))]),
+        actions: [IconButton(tooltip: 'Queue', onPressed: showQueue, icon: const Icon(Icons.queue_music)), IconButton(tooltip: 'Library', onPressed: showLibrary, icon: const Icon(Icons.library_music)), IconButton(tooltip: 'Import songs', onPressed: import, icon: const Icon(Icons.add_circle_outline))]),
       body: SafeArea(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
         const Spacer(),
         Expanded(flex: 5, child: Container(
@@ -446,8 +456,11 @@ class _MusicPageState extends State<MusicPage> {
             icon: const Icon(Icons.forward_10),
             label: const Text('Forward 10s')),
         ]),
-        TextButton.icon(onPressed: showLibrary,
-          icon: const Icon(Icons.library_music), label: const Text('Your Library')),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music), label: const Text('Library')),
+          TextButton.icon(onPressed: showQueue, icon: const Icon(Icons.queue_music), label: const Text('Queue')),
+          if (files.isNotEmpty) IconButton(tooltip: 'Add to playlist', icon: const Icon(Icons.playlist_add), onPressed: () => addToPlaylist(files[player.currentIndex ?? 0])),
+        ]),
         const SizedBox(height: 8),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           const Text('Speed', style: TextStyle(color: Colors.white70)),
