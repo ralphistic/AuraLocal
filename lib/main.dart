@@ -123,6 +123,10 @@ class _MusicPageState extends State<MusicPage> {
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
 
   Future<void> updateNativePitchTempo() async {
+    if (!nativePitchPreview && (pitchSemitones != 0 || pitchCents != 0)) {
+      await startNativePitchPreview();
+      return;
+    }
     try {
       await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchSemitones * 100 + pitchCents});
     } on PlatformException catch (e) {
@@ -660,7 +664,7 @@ class _MusicPageState extends State<MusicPage> {
           const SizedBox(width: 12),
           DropdownButton<double>(value: playbackSpeed, dropdownColor: const Color(0xFF252A35),
             items: [0.75, 1.0, 1.25, 1.5, 2.0].map((v) => DropdownMenuItem(value: v, child: Text('${v}×'))).toList(),
-            onChanged: (v) async { if (v == null) return; await player.setSpeed(v); setState(() => playbackSpeed = v); await saveLibrary(); }),
+            onChanged: (v) async { if (v == null) return; if (!nativePitchPreview) await player.setSpeed(v); setState(() => playbackSpeed = v); await updateNativePitchTempo(); await saveLibrary(); }),
         ]),
         TextButton.icon(onPressed: () => showModalBottomSheet<void>(
           context: context,
