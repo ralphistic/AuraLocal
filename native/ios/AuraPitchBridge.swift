@@ -101,6 +101,19 @@ final class AuraPitchBridge {
                         "finished": self.graph.finished,
                         "waveform": self.graph.waveform()
                     ] as [String: Any])
+                case "probeDurations":
+                    guard let args = call.arguments as? [String: Any],
+                          let paths = args["paths"] as? [String] else {
+                        throw self.argumentError("Missing track paths")
+                    }
+                    DispatchQueue.global(qos: .utility).async {
+                        let lengths: [Double] = paths.map { path in
+                            guard let file = try? AVAudioFile(forReading: URL(fileURLWithPath: path)),
+                                  file.processingFormat.sampleRate > 0 else { return -1 }
+                            return Double(file.length) / file.processingFormat.sampleRate
+                        }
+                        DispatchQueue.main.async { result(lengths) }
+                    }
                 case "setWaveformEnabled":
                     let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
                     self.graph.setWaveformEnabled(enabled)
