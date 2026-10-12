@@ -25,7 +25,7 @@ jobs:
               w.setnchannels(1)
               w.setsampwidth(2)
               w.setframerate(44100)
-              w.writeframes(b''.join(struct.pack('<h', int(10000 * math.sin(2 * math.pi * 440 * i / 44100))) for i in range(44100)))
+              w.writeframes(b''.join(struct.pack('<h', int(10000 * math.sin(2 * math.pi * 440 * i / 44100))) for i in range(44100 * 4)))
           PY
           ffmpeg -v error -y -i /tmp/auralocal-tone.wav -c:a flac /tmp/auralocal-tone.flac
           swift native/tests/audio_pipeline.swift /tmp/auralocal-tone.flac
