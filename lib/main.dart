@@ -144,7 +144,7 @@ class _MusicPageState extends State<MusicPage> {
     AudioSession.instance.then((s) => s.configure(const AudioSessionConfiguration.music()));
     restoreLibrary();
     player.playerStateStream.listen((_) { if (mounted) setState(() {}); });
-    player.currentIndexStream.listen((_) { if (mounted) setState(() {}); });
+    player.currentIndexStream.listen((_) { if (nativePitchPreview) { nativeDsp.invokeMethod('stopFile'); nativePitchPreview = false; } if (mounted) setState(() {}); });
     player.positionStream.listen((_) { if (mounted && !draggingPlayer && !libraryHome) setState(() {}); });
     player.durationStream.listen((_) { if (mounted) setState(() {}); });
   }
@@ -328,6 +328,7 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> skipTrack(int delta) async {
     if (files.isEmpty) return;
+    if (nativePitchPreview) { await nativeDsp.invokeMethod('stopFile'); nativePitchPreview = false; }
     final current = player.currentIndex ?? 0;
     if (delta < 0 && player.position.inSeconds > 3) {
       await player.seek(Duration.zero);
@@ -589,7 +590,7 @@ class _MusicPageState extends State<MusicPage> {
             onTap: () => setState(() => libraryHome = false),
             trailing: IconButton(color: Colors.white,
               icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
-              onPressed: () => player.playing ? player.pause() : player.play()),
+              onPressed: () async { if (nativePitchPreview) { await stopNativePitchPreview(); await player.pause(); } else { player.playing ? await player.pause() : await player.play(); } }),
           ),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
         ])),
@@ -634,7 +635,7 @@ class _MusicPageState extends State<MusicPage> {
             onPressed: () async { shuffle = !shuffle; await player.setShuffleModeEnabled(shuffle); await saveLibrary(); setState(() {}); },
             icon: const Icon(Icons.shuffle)),
           IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1), icon: const Icon(Icons.skip_previous), iconSize: 36),
-          IconButton.filled(onPressed: files.isEmpty ? import : () => player.playing ? player.pause() : player.play(),
+          IconButton.filled(onPressed: files.isEmpty ? import : () async { if (nativePitchPreview) { await stopNativePitchPreview(); await player.pause(); } else { player.playing ? await player.pause() : await player.play(); } },
             icon: Icon(player.playing ? Icons.pause : Icons.play_arrow), iconSize: 38),
           IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1), icon: const Icon(Icons.skip_next), iconSize: 36),
           Column(mainAxisSize: MainAxisSize.min, children: [
