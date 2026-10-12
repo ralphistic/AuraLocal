@@ -11,9 +11,11 @@ final class AuraDspGraph {
 
     func playFile(at path: String, positionSeconds: Double = 0) throws {
         try configure()
+#if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .default, options: [])
         try session.setActive(true)
+#endif
         let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
         source.stop()
         let start = AVAudioFramePosition(max(0, positionSeconds) * file.processingFormat.sampleRate)
