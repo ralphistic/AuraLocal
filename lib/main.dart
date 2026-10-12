@@ -305,14 +305,56 @@ class _MusicPageState extends State<MusicPage> {
       ])));
   }
 
+  Future<void> moveQueuedTrack(int from, int to) async {
+    if (from < 0 || from >= files.length || to < 0 || to >= files.length || from == to) return;
+    final currentPath = player.currentIndex == null ? null : files[player.currentIndex!];
+    final wasPlaying = player.playing;
+    final currentPosition = player.position;
+    final source = player.audioSource;
+    if (source is ConcatenatingAudioSource) {
+      await source.move(from, to);
+    } else {
+      return;
+    }
+    setState(() {
+      final moved = files.removeAt(from);
+      files.insert(to, moved);
+    });
+    // Moving a source preserves its playback identity; keep the current track and position.
+    if (currentPath != null && files.contains(currentPath) && player.currentIndex != files.indexOf(currentPath)) {
+      await player.seek(currentPosition, index: files.indexOf(currentPath));
+    }
+    if (wasPlaying && !player.playing) player.play();
+    await saveLibrary();
+  }
+
   void showQueue() {
-    showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (context) =>
-      SafeArea(child: FractionallySizedBox(heightFactor: 0.7, child: Column(children: [
-        const ListTile(title: Text('Playback queue')),
-        Expanded(child: ListView.builder(itemCount: files.length, itemBuilder: (_, i) =>
-          ListTile(leading: Icon(i == player.currentIndex ? Icons.graphic_eq : Icons.music_note),
-            title: Text(displayName(files[i]), maxLines: 1, overflow: TextOverflow.ellipsis),
-            onTap: () { Navigator.pop(context); player.seek(Duration.zero, index: i); player.play(); }))),
+    showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (sheetContext) =>
+      SafeArea(child: FractionallySizedBox(heightFactor: 0.78, child: Column(children: [
+        const ListTile(title: Text('Up Next'), subtitle: Text('Drag the handles to reorder playback')),
+        Expanded(child: StatefulBuilder(builder: (context, updateSheet) =>
+          ReorderableListView.builder(
+            buildDefaultDragHandles: false,
+            itemCount: files.length,
+            onReorder: (oldIndex, newIndex) async {
+              if (newIndex > oldIndex) newIndex--;
+              await moveQueuedTrack(oldIndex, newIndex);
+              updateSheet(() {});
+            },
+            itemBuilder: (_, i) => ListTile(
+              key: ValueKey(files[i]),
+              leading: Icon(i == player.currentIndex ? Icons.graphic_eq : Icons.music_note),
+              title: Text(displayName(files[i]), maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: i == player.currentIndex ? const Text('Now playing') : null,
+              onTap: () {
+                Navigator.pop(sheetContext);
+                player.seek(Duration.zero, index: i);
+                player.play();
+              },
+              trailing: ReorderableDragStartListener(index: i,
+                child: const Icon(Icons.drag_handle, color: Colors.white70)),
+            ),
+          ))),
       ]))));
   }
 
