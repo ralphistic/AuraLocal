@@ -79,18 +79,34 @@ class _MusicPageState extends State<MusicPage> {
   bool nativePitchPreview = false;
 
   Future<void> startNativePitchPreview() async {
-    if (files.isEmpty) return;
-    final path = files[(player.currentIndex ?? 0).clamp(0, files.length - 1)];
+    final sequence = player.sequence;
+    final index = player.currentIndex;
+    if (sequence == null || index == null || index >= sequence.length) {
+      if (mounted) setState(() => error = 'Select and play a track before starting native preview.');
+      return;
+    }
+    final item = sequence[index].tag;
+    final path = item is MediaItem ? item.id : null;
+    if (path == null || !await File(path).exists()) {
+      if (mounted) setState(() => error = 'The current track file could not be found.');
+      return;
+    }
+    final wasPlaying = player.playing;
     final position = player.position.inMilliseconds / 1000.0;
     try {
-      await player.pause();
       await nativeDsp.invokeMethod('playFile', {'path': path, 'position': position});
-      nativePitchPreview = true;
       await updateNativePitchTempo();
+      await player.pause();
+      nativePitchPreview = true;
       if (mounted) setState(() => error = null);
     } on PlatformException catch (e) {
       nativePitchPreview = false;
-      if (mounted) setState(() => error = 'Native playback failed: ${e.message}');
+      if (wasPlaying) await player.play();
+      if (mounted) setState(() => error = 'Native preview unavailable for this track: ${e.message}');
+    } on MissingPluginException {
+      nativePitchPreview = false;
+      if (wasPlaying) await player.play();
+      if (mounted) setState(() => error = 'Native audio bridge is not installed.');
     }
   }
 
