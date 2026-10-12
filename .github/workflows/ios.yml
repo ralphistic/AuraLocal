@@ -11,20 +11,35 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - name: Generate iOS project
+      - name: Generate iOS project and dependencies
         run: |
           flutter create --platforms=ios --project-name auralocal .
           flutter pub get
+          flutter build ios --config-only --release --no-codesign
       - name: Enable background audio
         run: |
           /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes array' ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes:0 string audio' ios/Runner/Info.plist || true
-      - name: Compile without code signing
-        run: flutter build ios --release --no-codesign || { echo 'Flutter wrapper failed; checking for unsigned Runner.app'; test -d build/ios/iphoneos/Runner.app; }
+      - name: Compile unsigned iOS app with Xcode
+        run: |
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/ios-xcode \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build
       - name: Package IPA
         run: |
+          APP="build/ios-xcode/Build/Products/Release-iphoneos/Runner.app"
+          test -d "$APP"
           mkdir Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/
+          cp -R "$APP" Payload/
           zip -qr AuraLocal-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
