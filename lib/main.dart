@@ -67,6 +67,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   double playerDrag = 0;
   bool draggingPlayer = false;
   bool dismissingPlayer = false;
+  double miniSwipeTravel = 0;
   Timer? dspWheelDebounce;
   Offset? pitchTouchStart;
   bool pitchTouchMoved = false;
@@ -405,34 +406,78 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     }
   }
 
-  void showLibrary() {
-    if (dismissingPlayer) return;
+  void showLibrary() => dismissPlayer();
+
+  void dismissPlayer() {
+    if (libraryHome || dismissingPlayer) return;
+    final height = MediaQuery.sizeOf(context).height;
     setState(() {
-      libraryHome = true;
-      playerDrag = 0;
+      dismissingPlayer = true;
+      draggingPlayer = false;
+      playerDrag = height;
+    });
+    Future<void>.delayed(const Duration(milliseconds: 290), () {
+      if (mounted && dismissingPlayer) {
+        setState(() {
+          libraryHome = true;
+          playerDrag = 0;
+          dismissingPlayer = false;
+        });
+      }
     });
   }
 
   void showPlayer() {
     if (!libraryHome) return;
     final height = MediaQuery.sizeOf(context).height;
-    setState(() { libraryHome = false; playerDrag = height; draggingPlayer = true; });
+    setState(() {
+      libraryHome = false;
+      dismissingPlayer = false;
+      playerDrag = height;
+      draggingPlayer = true;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() { draggingPlayer = false; playerDrag = 0; });
     });
   }
 
+  void startMiniSwipe() {
+    if (!libraryHome) return;
+    miniSwipeTravel = 0;
+    setState(() {
+      libraryHome = false;
+      playerDrag = MediaQuery.sizeOf(context).height;
+      draggingPlayer = true;
+      dismissingPlayer = false;
+    });
+  }
+
+  void updateMiniSwipe(DragUpdateDetails details) {
+    miniSwipeTravel += details.delta.dy;
+    setState(() {
+      playerDrag = (MediaQuery.sizeOf(context).height + miniSwipeTravel)
+          .clamp(0.0, MediaQuery.sizeOf(context).height).toDouble();
+    });
+  }
+
+  void finishMiniSwipe(DragEndDetails details) {
+    final rise = -miniSwipeTravel;
+    if (rise > 34 || (details.primaryVelocity ?? 0) < -220) {
+      // A short upward swipe magnetically opens the full player.
+      setState(() {
+        playerDrag = 0;
+        draggingPlayer = false;
+      });
+    } else {
+      dismissPlayer();
+    }
+  }
+
   void finishPlayerDrag(DragEndDetails details) {
     draggingPlayer = false;
     final height = MediaQuery.sizeOf(context).height;
-    if (playerDrag > height * 0.18 || (details.primaryVelocity ?? 0) > 650) {
-      dismissingPlayer = true;
-      setState(() => playerDrag = height);
-      Future<void>.delayed(const Duration(milliseconds: 285), () {
-        if (mounted) setState(() {
-          libraryHome = true; playerDrag = 0; dismissingPlayer = false;
-        });
-      });
+    if (playerDrag > height * 0.12 || (details.primaryVelocity ?? 0) > 450) {
+      dismissPlayer();
     } else {
       setState(() => playerDrag = 0);
     }
@@ -769,10 +814,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 },
               );
             })),
-        if (currentIndex >= 0 && currentIndex < files.length) AnimatedContainer(
-          duration: const Duration(milliseconds: 240),
-          color: const Color(0xFF29483F),
-          child: ListTile(
+        if (currentIndex >= 0 && currentIndex < files.length) GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragStart: (_) => startMiniSwipe(),
+          onVerticalDragUpdate: updateMiniSwipe,
+          onVerticalDragEnd: finishMiniSwipe,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 240),
+            color: const Color(0xFF29483F),
+            child: ListTile(
             leading: const Icon(Icons.graphic_eq, color: Colors.tealAccent),
             title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -783,6 +833,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   key: ValueKey(isPlaying))),
               onPressed: togglePlayback,
             ),
+          ),
           ),
         ),
         if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
@@ -830,7 +881,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             alignment: Alignment.topCenter,
             child: waveformVisible ? Padding(
               padding: const EdgeInsets.only(top: 12, bottom: 6),
-              child: SizedBox(height: 58, width: double.infinity,
+              child: SizedBox(height: 76, width: double.infinity,
                 child: ValueListenableBuilder<List<double>>(
                   valueListenable: waveformLevels,
                   builder: (_, levels, __) => CustomPaint(
@@ -931,28 +982,41 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 }
 
-/// Displays the most recently rendered PCM samples, not an overview of the file.
+/// Single live horizontal EQ-frequency contour, driven by actual PCM analysis.
 class LiveWaveformPainter extends CustomPainter {
   final List<double> samples;
   final bool isPlaying;
   const LiveWaveformPainter(this.samples, {required this.isPlaying});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = isPlaying ? const Color(0xFF9BE9C6) : const Color(0xFF6B8E84);
-    final count = samples.length;
-    if (count == 0) return;
-    final stride = size.width / count;
-    final width = math.max(2.0, stride * 0.53);
-    for (var i = 0; i < count; i++) {
-      final height = math.max(3.0, samples[i].clamp(0.0, 1.0).toDouble() * size.height);
-      final left = i * stride + (stride - width) / 2;
-      final rect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(left, (size.height - height) / 2, width, height),
-        const Radius.circular(3),
-      );
-      canvas.drawRRect(rect, paint);
+    if (samples.length < 2 || size.width <= 0) return;
+    final baseline = size.height * 0.80;
+    final span = size.height * 0.68;
+    final points = <Offset>[
+      for (var i = 0; i < samples.length; i++)
+        Offset(
+          size.width * i / (samples.length - 1),
+          baseline - samples[i].clamp(0.0, 1.0).toDouble() * span,
+        ),
+    ];
+    final curve = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length - 1; i++) {
+      final mid = Offset((points[i].dx + points[i + 1].dx) / 2,
+          (points[i].dy + points[i + 1].dy) / 2);
+      curve.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
     }
+    curve.lineTo(points.last.dx, points.last.dy);
+    final paint = Paint()
+      ..color = isPlaying ? const Color(0xFF9BE9C6) : const Color(0xFF6B8E84)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..isAntiAlias = true;
+    canvas.drawPath(curve, paint);
   }
+
   @override
   bool shouldRepaint(covariant LiveWaveformPainter old) =>
       old.isPlaying != isPlaying || old.samples != samples;
