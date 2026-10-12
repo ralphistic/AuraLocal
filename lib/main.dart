@@ -286,7 +286,7 @@ class _MusicPageState extends State<MusicPage> {
       for (final songs in playlists.values) { songs.remove(path); }
     });
     await saveLibrary();
-    if (files.isEmpty) { await player.stop(); await player.clearAudioSources(); }
+    if (files.isEmpty) { await player.stop(); await player.setAudioSource(ConcatenatingAudioSource(children: [])); }
     else { await loadPlaylist(); if (wasPlaying) await player.pause(); }
   }
 
