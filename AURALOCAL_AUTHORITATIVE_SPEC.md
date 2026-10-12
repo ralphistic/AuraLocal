@@ -85,3 +85,13 @@ Earlier prototype used picker temporary paths, a single player screen, placehold
 
 ## Working rules
 This is the authoritative product intent. Before implementation changes, check this file and explain meaningful scope/technical deviations. Prefer delivering complete working workflows. Build success != feature verification on device. User has requested **design consolidation before implementation**, so creation of this document is not authorization to begin implementing features immediately.
+
+
+## Audio quality acceptance target — 2026-10-12
+- **Primary target: perceptually transparent pitch and tempo processing.** At moderate adjustments, quality loss should be unnoticeable in blind listening comparisons to the original. This is an aspirational acceptance target, not a guarantee of mathematically lossless processing, especially at extreme settings (e.g. ±12 semitones or 50% tempo).
+- Prioritize preservation of clarity, drum/percussion transients, vocal timbre and formants, sustained harmonics, stereo image/phase coherence, and original FLAC fidelity. Avoid watery/metallic artifacts, warbling, robotic voices, transient smearing, stereo collapse, and unnecessary sample conversions.
+- Investigate **Rubber Band R3** as a candidate high-quality engine, subject to iOS compatibility, performance, licensing, and actual sound-quality validation. Evaluate alternative algorithms as needed; do not assume any one engine is transparent.
+- Offer processing profiles where justified: high quality, transient-focused, harmonic/vocal-focused, formant preservation, classic varispeed, and fine cent-level precision. Keep pitch and tempo independently adjustable.
+- **Remove separate native preview playback.** Integrate DSP into the main player so play/pause, seek, skip, queue, repeat, Control Center and track transitions control the same audio stream. Never allow two tracks to play simultaneously because a DSP preview was left running.
+- Verify objectively (pitch accuracy, tempo accuracy, underruns, stereo integrity) **and subjectively** with level-matched A/B listening across vocals, percussion, acoustic instruments, pads, and dense mixes on a real iPhone. Automated macOS graph tests alone do not establish iPhone integration or transparent audio quality.
+- **Preserve Build 61 as the first device-confirmed native pitch-working baseline.** Builds 62–63 made preliminary overlap and playback coordination changes, but are not proof of transparent sound or complete integration.
