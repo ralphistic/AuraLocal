@@ -32,6 +32,8 @@ jobs:
           cp native/tests/production_graph.swift /tmp/main.swift
           swiftc native/ios/AuraDspGraph.swift /tmp/main.swift -o /tmp/auralocal-production-graph
           /tmp/auralocal-production-graph /tmp/auralocal-tone.flac
+      - name: Verify Flutter/native playback contract
+        run: python3 native/tests/check_bridge_contract.py
       - name: Generate iOS project and dependencies
         run: |
           flutter create --platforms=ios --project-name auralocal .
