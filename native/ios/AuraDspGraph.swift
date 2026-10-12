@@ -47,6 +47,8 @@ final class AuraDspGraph {
         equalizer.bypass = true
         timePitch.rate = 1
         timePitch.pitch = 0
+        // Maximum analysis overlap reduces artifacts at the cost of CPU usage.
+        timePitch.overlap = 32
         engine.connect(source, to: equalizer, format: nil)
         engine.connect(equalizer, to: timePitch, format: nil)
         engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
