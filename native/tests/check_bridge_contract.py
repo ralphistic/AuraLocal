@@ -20,6 +20,7 @@ for method in ("playIndex", "setQueue", "getState", "pauseFile", "resumeFile",
                "seekFile", "skipFile", "setTimePitch", "setWaveformEnabled"):
     require((f"invokeMethod('{method}'" in dart or
              f"invokeMethod<int>('{method}'" in dart or
+             f"invokeMethod<bool>('{method}'" in dart or
              f"invokeMapMethod<String, dynamic>('{method}'" in dart) and
             f'case "{method}"' in bridge,
             f"{method} is implemented at both ends")
