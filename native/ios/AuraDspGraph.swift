@@ -18,6 +18,9 @@ final class AuraDspGraph {
     private(set) var paused = true
     private(set) var finished = false
     private var generation: Int = 0
+    // Interruptions may discard scheduled buffers even though AVAudioPlayerNode
+    // still reports a loaded file. Reprime that same file when playback resumes.
+    private var needsInterruptionReprime = false
     var onFinished: (() -> Void)?
     private let waveLock = NSLock()
     private var waveValues: [Float] = Array(repeating: 0, count: 48)
@@ -125,6 +128,7 @@ final class AuraDspGraph {
         anchorUptime = ProcessInfo.processInfo.systemUptime
         paused = false
         finished = false
+        needsInterruptionReprime = false
         source.scheduleSegment(file, startingFrame: start,
                                frameCount: AVAudioFrameCount(min(file.length - start, Int64(UInt32.max))),
                                at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -146,6 +150,10 @@ final class AuraDspGraph {
         paused = true
         if source.isPlaying { source.pause() }
     }
+    func interruptedByAnotherApp() {
+        pausePlayback()
+        needsInterruptionReprime = activeFile != nil
+    }
     func resumePlayback() throws {
         guard activeFile != nil else {
             throw NSError(domain: "AuraDSP", code: 7,
@@ -158,6 +166,15 @@ final class AuraDspGraph {
         // Required after YouTube or another app takes over the output session.
         try session.setActive(true)
 #endif
+        if needsInterruptionReprime, let path = activeFile?.url.path {
+            let savedPosition = min(max(0, Double(pausedFrame) / sampleRate),
+                                    max(0, durationSeconds - 0.001))
+            // Audio session recovery requires scheduling a fresh segment. Simply
+            // calling source.play() can return success but produce silence.
+            try playFile(at: path, positionSeconds: savedPosition)
+            needsInterruptionReprime = false
+            return
+        }
         if !engine.isRunning { try engine.start() }
         source.play()
         guard source.isPlaying else {
@@ -179,6 +196,7 @@ final class AuraDspGraph {
         generation += 1
         source.stop()
         activeFile = nil
+        needsInterruptionReprime = false
         paused = true
         finished = false
         startFrame = 0

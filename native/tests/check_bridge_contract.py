@@ -36,6 +36,9 @@ require("source.scheduleSegment(file" in graph and "source.play()" in graph and
 require("swiftc native/ios/AuraDspGraph.swift" in workflow and
         "/tmp/auralocal-production-graph /tmp/auralocal-tone.flac" in workflow,
         "Production graph audio test gates release")
+require("needsInterruptionReprime" in graph and "interruptedByAnotherApp()" in bridge and
+        "try playFile(at: path, positionSeconds: savedPosition)" in graph,
+        "Interruption recovery reprimes the paused track rather than silently playing a lost schedule")
 print("PASS: unified native transport contract")
 
 require("AVAudioSession.sharedInstance()" in graph and "try session.setActive(true)" in graph and

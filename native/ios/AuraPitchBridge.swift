@@ -222,7 +222,7 @@ final class AuraPitchBridge {
               let number = info[AVAudioSessionInterruptionTypeKey] as? NSNumber,
               let type = AVAudioSession.InterruptionType(rawValue: number.uintValue) else { return }
         if type == .began {
-            graph.pausePlayback()
+            graph.interruptedByAnotherApp()
             updateNowPlaying(force: true)
             report()
         } else if type == .ended {
