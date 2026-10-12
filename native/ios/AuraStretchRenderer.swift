@@ -31,14 +31,34 @@ enum AuraStretchRenderer {
         let key = "\(source.path.hashValue)_\(file.length)_\(Int(tempo * 10000))_\(Int(cents))"
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("aura-stretch-\(key).wav")
         if FileManager.default.fileExists(atPath: outputURL.path) { return outputURL }
-        let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
-                                         channels: AVAudioChannelCount(channels), interleaved: false)!
-        NSLog("AuraStretch: creating output %@ settings %@", outputURL.path, String(describing: outputFormat.settings))
-        let outputFile = try AVAudioFile(forWriting: outputURL, settings: outputFormat.settings)
+        let expectedFrames = Int((Double(file.length) / tempo).rounded())
+        let byteCount = expectedFrames * channels * MemoryLayout<Float>.size
+        guard byteCount <= Int(UInt32.max) - 36 else {
+            throw NSError(domain: "AuraStretch", code: 4, userInfo: [NSLocalizedDescriptionKey: "Audio exceeds WAV output limit"])
+        }
+        func appendLE<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        var header = Data("RIFF".utf8)
+        appendLE(UInt32(36 + byteCount), to: &header)
+        header.append(contentsOf: "WAVEfmt ".utf8)
+        appendLE(UInt32(16), to: &header)
+        appendLE(UInt16(3), to: &header) // IEEE 32-bit float PCM
+        appendLE(UInt16(channels), to: &header)
+        appendLE(UInt32(sampleRate), to: &header)
+        appendLE(UInt32(sampleRate) * UInt32(channels * 4), to: &header)
+        appendLE(UInt16(channels * 4), to: &header)
+        appendLE(UInt16(32), to: &header)
+        header.append(contentsOf: "data".utf8)
+        appendLE(UInt32(byteCount), to: &header)
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputFile = try FileHandle(forWritingTo: outputURL)
+        defer { try? outputFile.close() }
+        try outputFile.write(contentsOf: header)
         let chunk = 4096
         let inputBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(chunk))!
-        let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(16384))!
-        let totalOutput = Int((Double(file.length) / tempo).rounded())
+        let totalOutput = expectedFrames
         var outputWritten = 0
         var discard = Int(auraStretchOutputLatency(state))
         var ratioCarry = 0.0
@@ -69,15 +89,14 @@ enum AuraStretchRenderer {
             let skip = min(discard, outFrames)
             discard -= skip
             let available = min(outFrames - skip, totalOutput - outputWritten)
-            if available > 0, let data = outputBuffer.floatChannelData {
-                for f in 0..<available {
-                    for c in 0..<channels { data[c][f] = output[(f + skip) * channels + c] }
+            if available > 0 {
+                let first = skip * channels
+                let last = (skip + available) * channels
+                let samples = Array(output[first..<last])
+                let bytes = samples.withUnsafeBufferPointer { ptr in
+                    Data(bytes: ptr.baseAddress!, count: samples.count * MemoryLayout<Float>.size)
                 }
-                outputBuffer.frameLength = AVAudioFrameCount(available)
-                do { try outputFile.write(from: outputBuffer) } catch {
-                    NSLog("AuraStretch: output write failed %@", String(describing: error))
-                    throw error
-                }
+                try outputFile.write(contentsOf: bytes)
                 outputWritten += available
             }
         }
