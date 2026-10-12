@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
@@ -72,6 +73,16 @@ class _MusicPageState extends State<MusicPage> {
   bool favoritesOnly = false;
   bool sortAscending = true;
   double playbackSpeed = 1.0;
+  double pitchCents = 0.0;
+  static const nativeDsp = MethodChannel('auralocal/native_dsp');
+
+  Future<void> updateNativePitchTempo() async {
+    try {
+      await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchCents});
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Native DSP: ${e.message}');
+    }
+  }
   double? scrubPosition;
   bool draggingPlayer = false;
 
@@ -103,7 +114,7 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
-    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists, 'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed}));
+    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists, 'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed, 'pitchCents': pitchCents}));
   }
 
   Future<void> loadPlaylist({bool autoplay = false}) async {
@@ -138,6 +149,8 @@ class _MusicPageState extends State<MusicPage> {
         shuffle = decoded['shuffle'] == true;
         final savedRepeat = decoded['repeat'];
         if (savedRepeat is int && savedRepeat >= 0 && savedRepeat <= 2) repeat = savedRepeat;
+        final savedPitch = decoded['pitchCents'];
+        if (savedPitch is num) pitchCents = savedPitch.toDouble().clamp(-1200.0, 1200.0);
         final savedSpeed = decoded['speed'];
         if (savedSpeed is num && [0.75, 1.0, 1.25, 1.5, 2.0].contains(savedSpeed.toDouble())) playbackSpeed = savedSpeed.toDouble();
       }
@@ -543,6 +556,39 @@ class _MusicPageState extends State<MusicPage> {
             items: [0.75, 1.0, 1.25, 1.5, 2.0].map((v) => DropdownMenuItem(value: v, child: Text('${v}×'))).toList(),
             onChanged: (v) async { if (v == null) return; await player.setSpeed(v); setState(() => playbackSpeed = v); await saveLibrary(); }),
         ]),
+        TextButton.icon(onPressed: () => showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (context) => StatefulBuilder(builder: (context, refresh) => SafeArea(
+            child: Padding(padding: const EdgeInsets.all(20), child: Column(
+              mainAxisSize: MainAxisSize.min, children: [
+                const Text('Pitch / tempo engine', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                const Text('Native DSP controls are experimental. Playback still uses just_audio; pitch changes are not audible until the audio stream is connected.', textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+                Text('Pitch: ${pitchCents.toStringAsFixed(0)} cents'),
+                Slider(value: pitchCents, min: -1200, max: 1200, divisions: 2400,
+                  onChanged: (v) { refresh(() => pitchCents = v); setState(() {}); },
+                  onChangeEnd: (v) async { await updateNativePitchTempo(); await saveLibrary(); }),
+                Text('Tempo: ${(playbackSpeed * 100).toStringAsFixed(0)}%'),
+                Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
+                  onChanged: (v) { refresh(() => playbackSpeed = v); setState(() {}); },
+                  onChangeEnd: (v) async {
+                    await player.setSpeed(v);
+                    await updateNativePitchTempo();
+                    await saveLibrary();
+                  }),
+                TextButton(onPressed: () async {
+                  refresh(() { pitchCents = 0; playbackSpeed = 1; });
+                  setState(() {});
+                  await player.setSpeed(1);
+                  await updateNativePitchTempo();
+                  await saveLibrary();
+                }, child: const Text('Reset pitch and tempo')),
+              ],
+            )),
+          )),
+        ), icon: const Icon(Icons.tune), label: const Text('Pitch / tempo (experimental)')),
         TextButton.icon(onPressed: () => showModalBottomSheet(context: context,
           builder: (_) => const SafeArea(child: Padding(padding: EdgeInsets.all(24),
             child: Text('EQ is planned, but is not implemented in this prototype.')))),
