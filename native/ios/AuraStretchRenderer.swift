@@ -52,10 +52,14 @@ enum AuraStretchRenderer {
         appendLE(UInt16(32), to: &header)
         header.append(contentsOf: "data".utf8)
         appendLE(UInt32(byteCount), to: &header)
+        NSLog("AuraStretch: creating raw WAV file")
         FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        NSLog("AuraStretch: opening WAV file handle")
         let outputFile = try FileHandle(forWritingTo: outputURL)
+        NSLog("AuraStretch: WAV file handle opened")
         defer { try? outputFile.close() }
         try outputFile.write(contentsOf: header)
+        NSLog("AuraStretch: WAV header written")
         let chunk = 4096
         let inputBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(chunk))!
         let totalOutput = expectedFrames
@@ -66,7 +70,9 @@ enum AuraStretchRenderer {
         while outputWritten < totalOutput {
             var frames = 0
             if !inputFinished {
+                NSLog("AuraStretch: reading FLAC at %lld", file.framePosition)
                 try file.read(into: inputBuffer, frameCount: AVAudioFrameCount(chunk))
+                NSLog("AuraStretch: read %d FLAC frames", inputBuffer.frameLength)
                 frames = Int(inputBuffer.frameLength)
                 if frames == 0 { inputFinished = true }
             }
@@ -81,6 +87,7 @@ enum AuraStretchRenderer {
             let outFrames = Int(desired)
             ratioCarry = desired - Double(outFrames)
             var output = [Float](repeating: 0, count: outFrames * channels)
+            NSLog("AuraStretch: processing %d input frames", frames)
             input.withUnsafeBufferPointer { src in
                 output.withUnsafeMutableBufferPointer { dst in
                     auraStretchProcess(state, src.baseAddress, Int32(frames), dst.baseAddress, Int32(outFrames))
