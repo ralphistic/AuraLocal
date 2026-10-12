@@ -121,7 +121,15 @@ final class AuraDspGraph {
             }
             let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
             let amplitude = sqrt(power) * (4.0 / Float(window))
-            target[band] = min(1, sqrt(max(0, amplitude * 4.5)))
+            // Compensate gently for the power-law tilt of recorded music.
+            // 48 logarithmic bands currently make bass appear disproportionate.
+            // This is VISUAL weighting only; it never touches playback or EQ.
+            let tilt = Float(pow(max(1.0, hz / 250.0), 0.23))
+            let weighted = amplitude * tilt
+            // Logarithmic meter compression approximates a perceptual dB
+            // display and reveals quieter high-frequency musical details.
+            let db = 20.0 * log10(max(0.000001, Double(weighted)))
+            target[band] = Float(min(1, max(0, (db + 64.0) / 58.0)))
         }
         waveLock.lock()
         if waveEnabled {
