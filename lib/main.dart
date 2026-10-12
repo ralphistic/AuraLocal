@@ -1,54 +1,32 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:audio_session/audio_session.dart';
-import 'package:just_audio_background/just_audio_background.dart';
-import 'package:audio_service/audio_service.dart';
+import 'package:path_provider/path_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.auralocal.audio',
-    androidNotificationChannelName: 'AuraLocal playback',
-    androidNotificationOngoing: true,
-  );
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF101218),
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF9BE9C6),
-        brightness: Brightness.dark,
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF101218),
-        foregroundColor: Colors.white,
-      ),
-      listTileTheme: const ListTileThemeData(
-        textColor: Colors.white,
-        iconColor: Color(0xFF9BE9C6),
-      ),
+      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF9BE9C6), brightness: Brightness.dark),
+      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF101218), foregroundColor: Colors.white),
       inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFF252A35),
-        hintStyle: const TextStyle(color: Color(0xFFB7BDC9)),
-        prefixIconColor: const Color(0xFFB7BDC9),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
+        filled: true, fillColor: const Color(0xFF252A35),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       ),
     ),
     home: const MusicPage(),
   ));
 }
 
+/// UI and library manager. The sole audio player lives in AuraDspGraph on iOS.
 class MusicPage extends StatefulWidget {
   const MusicPage({super.key});
   @override
@@ -56,114 +34,95 @@ class MusicPage extends StatefulWidget {
 }
 
 class _MusicPageState extends State<MusicPage> {
-  final player = AudioPlayer();
-  ConcatenatingAudioSource? activeSource;
-
-  AudioSource sourceFor(String path) => AudioSource.uri(Uri.file(path), tag: MediaItem(
-    id: path, title: displayName(path), artist: 'Unknown Artist',
-  ));
+  static const nativeDsp = MethodChannel('auralocal/native_dsp');
   final files = <String>[];
-  int repeat = 0;
-  bool shuffle = false;
-  String? error;
-  bool libraryHome = true;
-  String query = '';
   final favorites = <String>{};
   final playlists = <String, List<String>>{};
   String? activePlaylist;
+  String? error;
+  int currentIndex = -1;
+  bool isPlaying = false;
+  bool libraryHome = true;
   bool favoritesOnly = false;
   bool sortAscending = true;
+  String query = '';
+  int repeat = 0;
+  bool shuffle = false;
   double playbackSpeed = 1.0;
-  double pitchCents = 0.0;
   int pitchSemitones = 0;
-  bool nativePitchPreview = false;
-
-  Future<void> startNativePitchPreview() async {
-    final sequence = player.sequence;
-    final index = player.currentIndex;
-    if (sequence == null || index == null || index >= sequence.length) {
-      if (mounted) setState(() => error = 'Select and play a track before starting native preview.');
-      return;
-    }
-    final item = sequence[index].tag;
-    final path = item is MediaItem ? item.id : null;
-    if (path == null || !await File(path).exists()) {
-      if (mounted) setState(() => error = 'The current track file could not be found.');
-      return;
-    }
-    final wasPlaying = player.playing;
-    final position = player.position.inMilliseconds / 1000.0;
-    try {
-      // Pause AVPlayer first so it cannot compete with the native output graph.
-      await player.pause();
-      await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchSemitones * 100 + pitchCents});
-      final started = await nativeDsp.invokeMethod<bool>('playFile', {'path': path, 'position': position});
-      if (started != true) throw PlatformException(code: 'NATIVE_AUDIO', message: 'Native audio did not confirm playback');
-      nativePitchPreview = true;
-      if (mounted) setState(() => error = null);
-    } on PlatformException catch (e) {
-      try { await nativeDsp.invokeMethod('stopFile'); } catch (_) {}
-      nativePitchPreview = false;
-      if (wasPlaying) await player.play();
-      if (mounted) setState(() => error = 'Native preview unavailable for this track: ${e.message}');
-    } on MissingPluginException {
-      nativePitchPreview = false;
-      if (wasPlaying) await player.play();
-      if (mounted) setState(() => error = 'Native audio bridge is not installed.');
-    }
-  }
-
-  Future<void> stopNativePitchPreview() async {
-    if (!nativePitchPreview) return;
-    double position = player.position.inMilliseconds / 1000.0;
-    try {
-      position = (await nativeDsp.invokeMethod<num>('getPosition'))?.toDouble() ?? position;
-      await nativeDsp.invokeMethod('stopFile');
-    } catch (_) {}
-    nativePitchPreview = false;
-    await player.seek(Duration(milliseconds: (position * 1000).round()));
-    await player.play();
-    if (mounted) setState(() {});
-  }
-
-  static const nativeDsp = MethodChannel('auralocal/native_dsp');
-
-  Future<void> updateNativePitchTempo() async {
-    if (!nativePitchPreview && (pitchSemitones != 0 || pitchCents != 0)) {
-      await startNativePitchPreview();
-      return;
-    }
-    try {
-      await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchSemitones * 100 + pitchCents});
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => error = 'Native DSP: ${e.message}');
-    } on MissingPluginException {
-      if (mounted) setState(() => error = 'Native DSP bridge unavailable');
-    }
-  }
+  double pitchCents = 0.0;
+  double positionSeconds = 0;
+  double durationSeconds = 0;
   double? scrubPosition;
+  bool draggingSeek = false;
+  bool waveformVisible = false;
+  List<double> waveform = List.filled(48, 0);
+  Timer? pollTimer;
+  bool pollBusy = false;
+  int tick = 0;
+  double playerDrag = 0;
   bool draggingPlayer = false;
+  bool dismissingPlayer = false;
 
   @override
   void initState() {
     super.initState();
-    AudioSession.instance.then((s) => s.configure(const AudioSessionConfiguration.music()));
-    restoreLibrary();
-    player.playerStateStream.listen((_) {
-      // Never permit both output engines to remain active.
-      if (player.playing && nativePitchPreview) {
-        nativeDsp.invokeMethod('stopFile');
-        nativePitchPreview = false;
-      }
-      if (mounted) setState(() {});
+    nativeDsp.setMethodCallHandler((call) async {
+      if (call.method != 'nativePlaybackEvent' || !mounted) return;
+      final state = Map<String, dynamic>.from(call.arguments as Map);
+      applyNativeState(state);
+      if (state['error'] is String) setState(() => error = state['error'] as String);
     });
-    player.currentIndexStream.listen((_) { if (nativePitchPreview) { nativeDsp.invokeMethod('stopFile'); nativePitchPreview = false; } if (mounted) setState(() {}); });
-    player.positionStream.listen((_) { if (mounted && !draggingPlayer && !libraryHome) setState(() {}); });
-    player.durationStream.listen((_) { if (mounted) setState(() {}); });
+    restoreLibrary();
+    pollTimer = Timer.periodic(const Duration(milliseconds: 100), (_) => pollNative());
   }
 
   @override
-  void dispose() { if (nativePitchPreview) nativeDsp.invokeMethod('stopFile'); player.dispose(); super.dispose(); }
+  void dispose() {
+    pollTimer?.cancel();
+    nativeDsp.setMethodCallHandler(null);
+    // The iOS audio session owns playback lifecycle; hiding this widget must not
+    // accidentally stop audio playing in the background.
+    super.dispose();
+  }
+
+  Future<void> pollNative() async {
+    if (pollBusy || files.isEmpty) return;
+    pollBusy = true;
+    try {
+      final response = await nativeDsp.invokeMapMethod<String, dynamic>('getState');
+      if (!mounted || response == null) return;
+      tick++;
+      if (waveformVisible) {
+        final values = response['waveform'];
+        if (values is List) {
+          waveform = values.map((v) => (v as num).toDouble().clamp(0.0, 1.0).toDouble()).toList();
+        }
+      }
+      applyNativeState(response, repaint: !libraryHome || tick % 5 == 0);
+    } on PlatformException catch (e) {
+      if (mounted && error == null) setState(() => error = 'Native audio: ${e.message}');
+    } finally {
+      pollBusy = false;
+    }
+  }
+
+  void applyNativeState(Map<String, dynamic> state, {bool repaint = true}) {
+    final newIndex = (state['index'] as num?)?.toInt();
+    final indexChanged = newIndex != null && newIndex >= 0 &&
+        newIndex < files.length && newIndex != currentIndex;
+    void apply() {
+      if (newIndex != null && newIndex >= -1 && newIndex < files.length) currentIndex = newIndex;
+      if (state['playing'] is bool) isPlaying = state['playing'] as bool;
+      if (state['position'] is num) positionSeconds = (state['position'] as num).toDouble();
+      if (state['duration'] is num) durationSeconds = (state['duration'] as num).toDouble();
+    }
+    if (repaint || indexChanged) {
+      if (mounted) setState(apply);
+    } else {
+      apply();
+    }
+  }
 
   Future<Directory> musicDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
@@ -179,61 +138,57 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
-    await manifest.writeAsString(jsonEncode({'files': files, 'favorites': favorites.toList(), 'playlists': playlists, 'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed, 'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones}));
+    await manifest.writeAsString(jsonEncode({
+      'files': files, 'favorites': favorites.toList(), 'playlists': playlists,
+      'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed,
+      'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones,
+    }));
   }
 
-  Future<void> loadPlaylist({bool autoplay = false}) async {
-    if (activeSource != null || files.isEmpty) return;
-    final source = ConcatenatingAudioSource(children: [
-      for (final path in files) sourceFor(path),
-    ]);
-    activeSource = source;
+  Future<void> syncQueue() async {
+    await nativeDsp.invokeMethod('setQueue', {
+      'paths': List<String>.of(files), 'shuffle': shuffle, 'repeat': repeat,
+    });
+  }
+
+  Future<void> updateNativePitchTempo() async {
     try {
-      await player.setAudioSource(source);
-      await player.setShuffleModeEnabled(shuffle);
-      await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]);
-      await player.setSpeed(playbackSpeed);
-      if (autoplay) player.play();
-    } catch (_) {
-      activeSource = null;
-      rethrow;
+      await nativeDsp.invokeMethod('setTimePitch', {
+        'tempo': playbackSpeed,
+        'cents': (pitchSemitones * 100 + pitchCents).clamp(-1200.0, 1200.0).toDouble(),
+      });
+      await saveLibrary();
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Audio processing: ${e.message}');
     }
   }
 
   Future<void> restoreLibrary() async {
     try {
       final manifest = await libraryManifest();
-      if (!await manifest.exists()) return;
-      final decoded = jsonDecode(await manifest.readAsString());
-      final saved = (decoded is List ? decoded : decoded['files'] as List).cast<String>();
-      favorites.clear();
-      if (decoded is Map && decoded['favorites'] is List) {
-        favorites.addAll((decoded['favorites'] as List).cast<String>());
+      if (await manifest.exists()) {
+        final decoded = jsonDecode(await manifest.readAsString());
+        final saved = (decoded is List ? decoded : decoded['files'] as List).cast<String>();
+        if (decoded is Map) {
+          if (decoded['favorites'] is List) favorites.addAll((decoded['favorites'] as List).whereType<String>());
+          shuffle = decoded['shuffle'] == true;
+          repeat = (decoded['repeat'] is int ? decoded['repeat'] as int : 0).clamp(0, 2);
+          pitchSemitones = (decoded['pitchSemitones'] is int ? decoded['pitchSemitones'] as int : 0).clamp(-12, 12);
+          pitchCents = (decoded['pitchCents'] is num ? decoded['pitchCents'] as num : 0).toDouble().clamp(-99.0, 99.0).toDouble();
+          playbackSpeed = (decoded['speed'] is num ? decoded['speed'] as num : 1).toDouble().clamp(0.5, 2.0).toDouble();
+          if (decoded['playlists'] is Map) {
+            (decoded['playlists'] as Map).forEach((name, entries) {
+              if (name is String && entries is List) playlists[name] = entries.whereType<String>().toList();
+            });
+          }
+        }
+        for (final path in saved) {
+          if (await File(path).exists()) files.add(path);
+        }
+        for (final songs in playlists.values) { songs.removeWhere((path) => !files.contains(path)); }
       }
-      if (decoded is Map) {
-        shuffle = decoded['shuffle'] == true;
-        final savedRepeat = decoded['repeat'];
-        if (savedRepeat is int && savedRepeat >= 0 && savedRepeat <= 2) repeat = savedRepeat;
-        final savedSemitones = decoded['pitchSemitones'];
-        if (savedSemitones is int) pitchSemitones = savedSemitones.clamp(-12, 12);
-        final savedPitch = decoded['pitchCents'];
-        if (savedPitch is num) pitchCents = savedPitch.toDouble().clamp(-99.0, 99.0);
-        final savedSpeed = decoded['speed'];
-        if (savedSpeed is num && [0.75, 1.0, 1.25, 1.5, 2.0].contains(savedSpeed.toDouble())) playbackSpeed = savedSpeed.toDouble();
-      }
-      playlists.clear();
-      if (decoded is Map && decoded['playlists'] is Map) {
-        (decoded['playlists'] as Map).forEach((name, paths) {
-          if (name is String && paths is List) playlists[name] = paths.whereType<String>().toList();
-        });
-      }
-      final existing = <String>[];
-      for (final path in saved) {
-        if (await File(path).exists()) existing.add(path);
-      }
-      files..clear()..addAll(existing);
-      for (final songs in playlists.values) { songs.removeWhere((path) => !files.contains(path)); }
-      await loadPlaylist();
+      await syncQueue();
+      await updateNativePitchTempo();
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) setState(() => error = 'Could not restore library: $e');
@@ -243,18 +198,15 @@ class _MusicPageState extends State<MusicPage> {
   Future<void> import() async {
     try {
       final picked = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['flac', 'mp3', 'm4a', 'wav', 'aac'],
+        type: FileType.custom, allowedExtensions: ['flac', 'mp3', 'm4a', 'wav', 'aac'],
         allowMultiple: true,
       );
       if (picked == null) return;
       final directory = await musicDirectory();
       var imported = 0;
       for (final entry in picked.files) {
-        final source = entry.path;
-        if (source == null) continue;
-        final original = File(source);
-        if (!await original.exists()) continue;
+        final path = entry.path;
+        if (path == null || !await File(path).exists()) continue;
         final safeName = entry.name.replaceAll(RegExp(r'[^a-zA-Z0-9._ -]'), '_');
         var target = File('${directory.path}/$safeName');
         var suffix = 1;
@@ -264,124 +216,132 @@ class _MusicPageState extends State<MusicPage> {
           final ext = dot > 0 ? safeName.substring(dot) : '';
           target = File('${directory.path}/${base}_${suffix++}$ext');
         }
-        await original.copy(target.path);
+        await File(path).copy(target.path);
         files.add(target.path);
         imported++;
       }
       if (imported == 0) throw Exception('No accessible audio files returned');
+      // Queue replacement updates track paths only: no graph stop, seek or restart.
+      await syncQueue();
       await saveLibrary();
-      if (activeSource == null) {
-        await loadPlaylist();
-      } else {
-        // Extend the existing audio sequence; never reset the playing track.
-        final newPaths = files.sublist(files.length - imported);
-        await activeSource!.addAll([for (final path in newPaths) sourceFor(path)]);
-      }
       if (mounted) setState(() => error = null);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     }
   }
 
-  Future<void> showPitchWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
-      isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 360,
-        child: Column(children: [
-          Row(children: [
-            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
-            const Expanded(child: Text('Adjust Pitch', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-            const SizedBox(width: 48),
-          ]),
-          const Row(children: [
-            Expanded(child: Center(child: Text('Semitones'))),
-            Expanded(child: Center(child: Text('Cents'))),
-          ]),
-          Expanded(child: Row(children: [
-            Expanded(child: CupertinoPicker(
-              scrollController: FixedExtentScrollController(initialItem: pitchSemitones + 12),
-              itemExtent: 44, onSelectedItemChanged: (i) {
-                refresh(() => pitchSemitones = i - 12);
-                updateNativePitchTempo(); saveLibrary();
-              }, children: [for (var i = -12; i <= 12; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
-            )),
-            Expanded(child: CupertinoPicker(
-              scrollController: FixedExtentScrollController(initialItem: pitchCents.round() + 99),
-              itemExtent: 44, onSelectedItemChanged: (i) {
-                refresh(() => pitchCents = (i - 99).toDouble());
-                updateNativePitchTempo(); saveLibrary();
-              }, children: [for (var i = -99; i <= 99; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
-            )),
-          ])),
-        ]),
-      )));
-  }
-
-  Future<void> showTempoWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
-      isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 360,
-        child: Column(children: [
-          Row(children: [
-            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
-            const Expanded(child: Text('Adjust Tempo', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-            const SizedBox(width: 48),
-          ]),
-          Expanded(child: CupertinoPicker(
-            scrollController: FixedExtentScrollController(initialItem: (playbackSpeed * 100).round() - 50),
-            itemExtent: 44, onSelectedItemChanged: (i) async {
-              final value = (i + 50) / 100.0;
-              refresh(() => playbackSpeed = value);
-              await player.setSpeed(value);
-              await updateNativePitchTempo();
-              await saveLibrary();
-            }, children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))],
-          )),
-        ]),
-      )));
-  }
-
   Future<void> selectAndPlayTrack(int index) async {
-    // Stop the other engine BEFORE changing AVPlayer's track.
-    if (nativePitchPreview) {
-      await nativeDsp.invokeMethod('stopFile');
-      nativePitchPreview = false;
+    if (index < 0 || index >= files.length) return;
+    try {
+      await nativeDsp.invokeMethod('playIndex', {'index': index});
+      if (mounted) setState(() {
+        currentIndex = index; isPlaying = true; positionSeconds = 0; error = null;
+      });
+      await setNativeTitle();
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Playback: ${e.message}');
     }
-    await player.pause();
-    await player.seek(Duration.zero, index: index);
-    await player.play();
+  }
+
+  Future<void> setNativeTitle() async {
+    if (currentIndex < 0 || currentIndex >= files.length) return;
+    await nativeDsp.invokeMethod('setNowPlaying', {'title': displayName(files[currentIndex])});
+  }
+
+  Future<void> togglePlayback() async {
+    if (files.isEmpty) return;
+    if (currentIndex < 0 || (!isPlaying && durationSeconds <= 0)) {
+      await selectAndPlayTrack(currentIndex < 0 ? 0 : currentIndex);
+      return;
+    }
+    final shouldPlay = !isPlaying;
+    try {
+      if (shouldPlay) {
+        await nativeDsp.invokeMethod('resumeFile');
+      } else {
+        await nativeDsp.invokeMethod('pauseFile');
+      }
+      if (mounted) setState(() => isPlaying = shouldPlay);
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Playback: ${e.message}');
+    }
   }
 
   Future<void> skipTrack(int delta) async {
     if (files.isEmpty) return;
-    if (nativePitchPreview) { await nativeDsp.invokeMethod('stopFile'); nativePitchPreview = false; }
-    final current = player.currentIndex ?? 0;
-    if (delta < 0 && player.position.inSeconds > 3) {
-      await player.seek(Duration.zero);
-      return;
+    if (currentIndex < 0) { await selectAndPlayTrack(0); return; }
+    try {
+      final next = await nativeDsp.invokeMethod<int>('skipFile', {'delta': delta});
+      if (next != null && mounted) setState(() => currentIndex = next);
+      await setNativeTitle();
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Skip: ${e.message}');
     }
-    final target = (current + delta + files.length) % files.length;
-    await selectAndPlayTrack(target);
   }
 
-  Future<void> seekSeconds(int seconds) async {
-    final duration = player.duration;
-    if (files.isEmpty || duration == null) return;
-    final nativeSeconds = nativePitchPreview
-        ? (await nativeDsp.invokeMethod<num>('getPosition'))?.toDouble()
-        : null;
-    final target = Duration(milliseconds: ((nativeSeconds ?? player.position.inMilliseconds / 1000) * 1000).round()) + Duration(seconds: seconds);
-    final ms = target.inMilliseconds.clamp(0, duration.inMilliseconds);
-    if (nativePitchPreview) {
-      await nativeDsp.invokeMethod('seekFile', {'position': ms / 1000.0});
+  Future<void> seekTo(double seconds) async {
+    if (currentIndex < 0) return;
+    try {
+      await nativeDsp.invokeMethod('seekFile', {'position': seconds.clamp(0.0, durationSeconds).toDouble()});
+      if (mounted) setState(() => positionSeconds = seconds.clamp(0.0, durationSeconds).toDouble());
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Seek: ${e.message}');
+    }
+  }
+
+  Future<void> seekSeconds(int seconds) async => seekTo(positionSeconds + seconds);
+
+  Future<void> toggleWaveform() async {
+    final enabled = !waveformVisible;
+    await nativeDsp.invokeMethod('setWaveformEnabled', {'enabled': enabled});
+    if (mounted) setState(() {
+      waveformVisible = enabled;
+      if (!enabled) waveform = List.filled(48, 0);
+    });
+  }
+
+  void showLibrary() {
+    if (dismissingPlayer) return;
+    setState(() {
+      libraryHome = true;
+      playerDrag = 0;
+    });
+  }
+
+  void showPlayer() {
+    if (!libraryHome) return;
+    final height = MediaQuery.sizeOf(context).height;
+    setState(() { libraryHome = false; playerDrag = height; draggingPlayer = true; });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() { draggingPlayer = false; playerDrag = 0; });
+    });
+  }
+
+  void finishPlayerDrag(DragEndDetails details) {
+    draggingPlayer = false;
+    final height = MediaQuery.sizeOf(context).height;
+    if (playerDrag > height * 0.18 || (details.primaryVelocity ?? 0) > 650) {
+      dismissingPlayer = true;
+      setState(() => playerDrag = height);
+      Future<void>.delayed(const Duration(milliseconds: 285), () {
+        if (mounted) setState(() {
+          libraryHome = true; playerDrag = 0; dismissingPlayer = false;
+        });
+      });
     } else {
-      await player.seek(Duration(milliseconds: ms));
+      setState(() => playerDrag = 0);
     }
   }
-
-  void showLibrary() => setState(() => libraryHome = true);
 
   String displayName(String path) {
     final raw = Uri.file(path).pathSegments.last;
-    return raw.replaceFirst(RegExp(r'\\.(flac|mp3|m4a|wav|aac)$', caseSensitive: false), '');
+    return raw.replaceFirst(RegExp(r'\.(flac|mp3|m4a|wav|aac)$', caseSensitive: false), '');
+  }
+  String get title => currentIndex < 0 || currentIndex >= files.length
+      ? 'Your music awaits' : displayName(files[currentIndex]);
+  String clock(double seconds) {
+    final total = seconds.isFinite ? seconds.round().clamp(0, 360000) : 0;
+    return '${total ~/ 60}:${(total % 60).toString().padLeft(2, '0')}';
   }
 
   Future<void> toggleFavorite(String path) async {
@@ -409,14 +369,16 @@ class _MusicPageState extends State<MusicPage> {
   Future<void> addToPlaylist(String path) async {
     if (playlists.isEmpty) await createPlaylist();
     if (!mounted || playlists.isEmpty) return;
-    final selected = await showModalBottomSheet<String>(context: context, builder: (context) =>
-      SafeArea(child: ListView(shrinkWrap: true, children: [
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const ListTile(title: Text('Add to playlist')),
         for (final name in playlists.keys)
           ListTile(leading: const Icon(Icons.playlist_add), title: Text(name),
             onTap: () => Navigator.pop(context, name)),
-      ])));
-    if (selected == null) return;
+      ])),
+    );
+    if (selected == null || !playlists.containsKey(selected)) return;
     setState(() { if (!playlists[selected]!.contains(path)) playlists[selected]!.add(path); });
     await saveLibrary();
   }
@@ -442,310 +404,409 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   void playlistMenu(String name) {
-    showModalBottomSheet<void>(context: context, builder: (context) => SafeArea(child: Column(
-      mainAxisSize: MainAxisSize.min, children: [
+    showModalBottomSheet<void>(context: context, builder: (sheet) => SafeArea(child:
+      Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(leading: const Icon(Icons.edit), title: const Text('Rename playlist'), onTap: () {
-          Navigator.pop(context); renamePlaylist(name);
+          Navigator.pop(sheet); renamePlaylist(name);
         }),
         ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Delete playlist'), onTap: () async {
-          Navigator.pop(context);
+          Navigator.pop(sheet);
           setState(() { playlists.remove(name); if (activePlaylist == name) activePlaylist = null; });
           await saveLibrary();
         }),
       ])));
   }
 
-  Future<void> removeTrack(String path) async {
-    final index = files.indexOf(path);
-    if (index < 0) return;
-    // Remove from the live audio sequence rather than replacing the player source.
-    if (activeSource != null) await activeSource!.removeAt(index);
-    setState(() {
-      files.removeAt(index);
-      favorites.remove(path);
-      for (final songs in playlists.values) { songs.remove(path); }
-    });
-    await saveLibrary();
-    if (files.isEmpty) {
-      await player.stop();
-      activeSource = null;
-    }
-  }
-
   void trackMenu(String path) {
-    showModalBottomSheet<void>(context: context, builder: (context) => SafeArea(child: Column(
-      mainAxisSize: MainAxisSize.min, children: [
+    showModalBottomSheet<void>(context: context, builder: (sheet) => SafeArea(child:
+      Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(leading: const Icon(Icons.playlist_add), title: const Text('Add to playlist'),
-          onTap: () { Navigator.pop(context); addToPlaylist(path); }),
+          onTap: () { Navigator.pop(sheet); addToPlaylist(path); }),
         ListTile(leading: Icon(favorites.contains(path) ? Icons.favorite : Icons.favorite_border),
-          title: Text(favorites.contains(path) ? 'Remove favorite' : 'Add favorite'),
-          onTap: () { Navigator.pop(context); toggleFavorite(path); }),
-        ListTile(leading: const Icon(Icons.remove_circle_outline), title: const Text('Remove from library'),
-          onTap: () { Navigator.pop(context); removeTrack(path); }),
+          title: Text(favorites.contains(path) ? 'Remove from favorites' : 'Add to favorites'),
+          onTap: () { Navigator.pop(sheet); toggleFavorite(path); }),
       ])));
   }
 
   Future<void> moveQueuedTrack(int from, int to) async {
-    if (from < 0 || from >= files.length || to < 0 || to >= files.length || from == to) return;
-    final currentPath = player.currentIndex == null ? null : files[player.currentIndex!];
-    final wasPlaying = player.playing;
-    final currentPosition = player.position;
-    final source = player.audioSource;
-    if (source is ConcatenatingAudioSource) {
-      await source.move(from, to);
-    } else {
-      return;
-    }
+    if (from < 0 || from >= files.length || to < 0 || to >= files.length) return;
     setState(() {
-      final moved = files.removeAt(from);
-      files.insert(to, moved);
+      final path = files.removeAt(from);
+      files.insert(to, path);
+      if (currentIndex == from) currentIndex = to;
+      else if (from < currentIndex && to >= currentIndex) currentIndex--;
+      else if (from > currentIndex && to <= currentIndex) currentIndex++;
     });
-    // Moving a source preserves its playback identity; keep the current track and position.
-    if (currentPath != null && files.contains(currentPath) && player.currentIndex != files.indexOf(currentPath)) {
-      await player.seek(currentPosition, index: files.indexOf(currentPath));
-    }
-    if (wasPlaying && !player.playing) player.play();
+    await syncQueue();
     await saveLibrary();
   }
 
   void showQueue() {
-    showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (sheetContext) =>
+    showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (sheet) =>
       SafeArea(child: FractionallySizedBox(heightFactor: 0.78, child: Column(children: [
         const ListTile(title: Text('Up Next'), subtitle: Text('Drag the handles to reorder playback')),
-        Expanded(child: StatefulBuilder(builder: (context, updateSheet) =>
-          ReorderableListView.builder(
-            buildDefaultDragHandles: false,
-            itemCount: files.length,
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > oldIndex) newIndex--;
-              await moveQueuedTrack(oldIndex, newIndex);
-              updateSheet(() {});
-            },
-            itemBuilder: (_, i) => ListTile(
-              key: ValueKey(files[i]),
-              leading: Icon(i == player.currentIndex ? Icons.graphic_eq : Icons.music_note),
-              title: Text(displayName(files[i]), maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: i == player.currentIndex ? const Text('Now playing') : null,
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                await selectAndPlayTrack(i);
-              },
-              trailing: ReorderableDragStartListener(index: i,
-                child: const Icon(Icons.drag_handle, color: Colors.white70)),
-            ),
-          ))),
+        Expanded(child: StatefulBuilder(builder: (context, refresh) => ReorderableListView.builder(
+          buildDefaultDragHandles: false,
+          itemCount: files.length,
+          onReorder: (oldIndex, newIndex) async {
+            if (newIndex > oldIndex) newIndex--;
+            await moveQueuedTrack(oldIndex, newIndex);
+            refresh(() {});
+          },
+          itemBuilder: (_, index) => ListTile(
+            key: ValueKey(files[index]),
+            leading: Icon(index == currentIndex ? Icons.graphic_eq : Icons.music_note),
+            title: Text(displayName(files[index]), maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: index == currentIndex ? const Text('Now playing') : null,
+            onTap: () async { Navigator.pop(sheet); await selectAndPlayTrack(index); },
+            trailing: ReorderableDragStartListener(index: index, child: const Icon(Icons.drag_handle)),
+          ),
+        ))),
       ]))));
   }
 
-  String get title {
-    final i = player.currentIndex;
-    if (i == null || i >= files.length) return 'Your music awaits';
-    return displayName(files[i]);
+  Future<void> showPitchWheel(StateSetter refresh) async {
+    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
+      isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 340,
+        child: Column(children: [
+          Row(children: [
+            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
+            const Expanded(child: Text('Adjust Pitch', textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            const SizedBox(width: 48),
+          ]),
+          const Row(children: [
+            Expanded(child: Center(child: Text('Semitones'))),
+            Expanded(child: Center(child: Text('Cents'))),
+          ]),
+          Expanded(child: Row(children: [
+            Expanded(child: CupertinoPicker(
+              scrollController: FixedExtentScrollController(initialItem: pitchSemitones + 12),
+              itemExtent: 44,
+              onSelectedItemChanged: (i) {
+                refresh(() => pitchSemitones = i - 12);
+                setState(() {});
+                updateNativePitchTempo();
+              },
+              children: [for (var i = -12; i <= 12; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
+            )),
+            Expanded(child: CupertinoPicker(
+              scrollController: FixedExtentScrollController(initialItem: pitchCents.round() + 99),
+              itemExtent: 44,
+              onSelectedItemChanged: (i) {
+                refresh(() => pitchCents = (i - 99).toDouble());
+                setState(() {});
+                updateNativePitchTempo();
+              },
+              children: [for (var i = -99; i <= 99; i++) Center(child: Text('${i >= 0 ? '+' : ''}$i'))],
+            )),
+          ])),
+        ]),
+      )));
   }
 
-  String clock(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+  Future<void> showTempoWheel(StateSetter refresh) async {
+    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
+      isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 330,
+        child: Column(children: [
+          Row(children: [
+            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
+            const Expanded(child: Text('Adjust Tempo', textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            const SizedBox(width: 48),
+          ]),
+          Expanded(child: CupertinoPicker(
+            scrollController: FixedExtentScrollController(initialItem: (playbackSpeed * 100).round() - 50),
+            itemExtent: 44,
+            onSelectedItemChanged: (i) {
+              refresh(() => playbackSpeed = (i + 50) / 100);
+              setState(() {});
+              updateNativePitchTempo();
+            },
+            children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))],
+          )),
+        ]),
+      ))));
+  }
+
+  void showAudioSettings() {
+    showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) => SafeArea(
+        child: Padding(padding: const EdgeInsets.all(18), child: Column(mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Pitch and tempo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('Adjust the one native audio engine. Your original FLAC files remain unchanged.',
+              textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 14),
+            TextButton(onPressed: () => showPitchWheel(refresh),
+              child: Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones, ${pitchCents.toStringAsFixed(0)} cents')),
+            Slider(value: pitchSemitones.toDouble(), min: -12, max: 12, divisions: 24,
+              onChanged: (value) { refresh(() => pitchSemitones = value.round()); setState(() {}); },
+              onChangeEnd: (_) => updateNativePitchTempo()),
+            Text('Fine pitch: ${pitchCents.toStringAsFixed(0)} cents'),
+            Slider(value: pitchCents, min: -99, max: 99, divisions: 198,
+              onChanged: (value) { refresh(() => pitchCents = value); setState(() {}); },
+              onChangeEnd: (_) => updateNativePitchTempo()),
+            TextButton(onPressed: () => showTempoWheel(refresh),
+              child: Text('Tempo: ${(playbackSpeed * 100).round()}%')),
+            Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
+              onChanged: (value) { refresh(() => playbackSpeed = value); setState(() {}); },
+              onChangeEnd: (_) => updateNativePitchTempo()),
+            TextButton(onPressed: () async {
+              refresh(() { pitchSemitones = 0; pitchCents = 0; playbackSpeed = 1; });
+              setState(() {});
+              await updateNativePitchTempo();
+            }, child: const Text('Reset pitch and tempo')),
+          ],
+        )),
+      )));
+  }
+
+  Widget buildLibrary() {
+    final matches = List<int>.generate(files.length, (i) => i).where((i) =>
+      (activePlaylist == null || (playlists[activePlaylist]?.contains(files[i]) ?? false)) &&
+      (!favoritesOnly || favorites.contains(files[i])) &&
+      displayName(files[i]).toLowerCase().contains(query.toLowerCase())).toList()
+      ..sort((a, b) => sortAscending
+          ? displayName(files[a]).toLowerCase().compareTo(displayName(files[b]).toLowerCase())
+          : displayName(files[b]).toLowerCase().compareTo(displayName(files[a]).toLowerCase()));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Your Library'), actions: [
+        IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add), onPressed: createPlaylist),
+        IconButton(tooltip: 'Import music', icon: const Icon(Icons.add), onPressed: import),
+      ]),
+      body: SafeArea(child: Column(children: [
+        Padding(padding: const EdgeInsets.all(16), child: TextField(
+          onChanged: (value) => setState(() => query = value),
+          decoration: const InputDecoration(hintText: 'Search songs', prefixIcon: Icon(Icons.search)),
+        )),
+        SizedBox(height: 52, child: ListView(scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+          ChoiceChip(label: const Text('Library'), selected: activePlaylist == null,
+            onSelected: (_) => setState(() => activePlaylist = null)),
+          const SizedBox(width: 8),
+          for (final name in playlists.keys) ...[
+            InputChip(label: Text(name), selected: activePlaylist == name,
+              onSelected: (_) => setState(() => activePlaylist = name),
+              onDeleted: () => playlistMenu(name), deleteIcon: const Icon(Icons.more_horiz, size: 18)),
+            const SizedBox(width: 8),
+          ],
+        ])),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
+          ChoiceChip(label: const Text('All songs'), selected: !favoritesOnly,
+            onSelected: (_) => setState(() => favoritesOnly = false)),
+          const SizedBox(width: 8),
+          ChoiceChip(label: const Text('Favorites'), selected: favoritesOnly,
+            onSelected: (_) => setState(() => favoritesOnly = true)),
+          const Spacer(),
+          IconButton(tooltip: 'Change sort order',
+            icon: Icon(sortAscending ? Icons.sort_by_alpha : Icons.sort),
+            onPressed: () => setState(() => sortAscending = !sortAscending)),
+        ])),
+        Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6),
+          child: Align(alignment: Alignment.centerLeft,
+            child: Text(activePlaylist == null ? '${files.length} songs' :
+              '${activePlaylist!} • ${matches.length} songs',
+              style: const TextStyle(color: Colors.white60)))),
+        Expanded(child: files.isEmpty
+          ? Center(child: FilledButton.icon(onPressed: import, icon: const Icon(Icons.add),
+              label: const Text('Import your music')))
+          : ListView.builder(itemCount: matches.length, itemBuilder: (_, row) {
+              final index = matches[row];
+              return ListTile(
+                leading: const Icon(Icons.music_note, color: Colors.tealAccent),
+                title: Text(displayName(files[index]), maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(index == currentIndex ? 'Now playing' : 'Local audio',
+                  style: const TextStyle(color: Colors.white60)),
+                trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert),
+                  onPressed: () => trackMenu(files[index])),
+                onTap: () async {
+                  await selectAndPlayTrack(index);
+                  if (mounted) showPlayer();
+                },
+              );
+            })),
+        if (currentIndex >= 0 && currentIndex < files.length) AnimatedContainer(
+          duration: const Duration(milliseconds: 240),
+          color: const Color(0xFF29483F),
+          child: ListTile(
+            leading: const Icon(Icons.graphic_eq, color: Colors.tealAccent),
+            title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+            onTap: showPlayer,
+            trailing: IconButton(
+              icon: AnimatedSwitcher(duration: const Duration(milliseconds: 180),
+                child: Icon(isPlaying ? Icons.pause : Icons.play_arrow,
+                  key: ValueKey(isPlaying))),
+              onPressed: togglePlayback,
+            ),
+          ),
+        ),
+        if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
+      ])),
+    );
+  }
+
+  Widget buildPlayer() {
+    final effectivePosition = draggingSeek && scrubPosition != null ? scrubPosition! : positionSeconds;
+    final maximum = math.max(durationSeconds, 0.001);
+    return Scaffold(
+      backgroundColor: const Color(0xFF101218),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down),
+          onPressed: showLibrary),
+        title: const Text('Now Playing'),
+        actions: [
+          IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
+            color: waveformVisible ? Colors.tealAccent : Colors.white,
+            icon: const Icon(Icons.waves)),
+          IconButton(tooltip: 'Queue', icon: const Icon(Icons.queue_music), onPressed: showQueue),
+          IconButton(tooltip: 'Import music', icon: const Icon(Icons.add_circle_outline), onPressed: import),
+        ],
+      ),
+      body: SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(22, 6, 22, 14),
+        child: Column(children: [
+          const Spacer(),
+          Expanded(flex: 5, child: Container(
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(24),
+              gradient: const LinearGradient(colors: [Color(0xFF295548), Color(0xFF181B2B)])),
+            child: const Center(child: Icon(Icons.music_note, size: 120, color: Color(0xFF9BE9C6))),
+          )),
+          const SizedBox(height: 22),
+          Row(children: [
+            Expanded(child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold))),
+            if (currentIndex >= 0 && currentIndex < files.length)
+              IconButton(tooltip: 'Favorite',
+                onPressed: () => toggleFavorite(files[currentIndex]),
+                icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite : Icons.favorite_border,
+                  color: const Color(0xFF9BE9C6))),
+          ]),
+          AnimatedSize(duration: const Duration(milliseconds: 280), curve: Curves.easeInOutCubic,
+            alignment: Alignment.topCenter,
+            child: waveformVisible ? Padding(
+              padding: const EdgeInsets.only(top: 12, bottom: 6),
+              child: SizedBox(height: 58, width: double.infinity, child: CustomPaint(
+                painter: LiveWaveformPainter(waveform, isPlaying: isPlaying),
+              )),
+            ) : const SizedBox(width: double.infinity, height: 0),
+          ),
+          const SizedBox(height: 12),
+          Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
+            onChangeStart: durationSeconds <= 0 ? null :
+              (value) => setState(() { draggingSeek = true; scrubPosition = value; }),
+            onChanged: durationSeconds <= 0 ? null :
+              (value) => setState(() => scrubPosition = value),
+            onChangeEnd: durationSeconds <= 0 ? null : (value) async {
+              await seekTo(value);
+              if (mounted) setState(() { draggingSeek = false; scrubPosition = null; });
+            }),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text(clock(effectivePosition), style: const TextStyle(color: Colors.white70)),
+            Text(clock(durationSeconds), style: const TextStyle(color: Colors.white70)),
+          ]),
+          const SizedBox(height: 10),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            IconButton(tooltip: 'Shuffle', color: shuffle ? Colors.tealAccent : Colors.white,
+              onPressed: () async {
+                setState(() => shuffle = !shuffle);
+                await syncQueue(); await saveLibrary();
+              }, icon: const Icon(Icons.shuffle)),
+            IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1),
+              icon: const Icon(Icons.skip_previous), iconSize: 36),
+            IconButton.filled(onPressed: files.isEmpty ? import : togglePlayback,
+              icon: AnimatedSwitcher(duration: const Duration(milliseconds: 160),
+                transitionBuilder: (child, animation) =>
+                  ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
+                child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, key: ValueKey(isPlaying), size: 38))),
+            IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1),
+              icon: const Icon(Icons.skip_next), iconSize: 36),
+            Column(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : Colors.tealAccent,
+                onPressed: () async {
+                  setState(() => repeat = (repeat + 1) % 3);
+                  await syncQueue(); await saveLibrary();
+                }, icon: Icon(repeat == 2 ? Icons.repeat_one : Icons.repeat)),
+              Text(['OFF', 'ALL', 'ONE'][repeat],
+                style: const TextStyle(fontSize: 10, color: Colors.white)),
+            ]),
+          ]),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            IconButton(tooltip: 'Back 10 seconds', iconSize: 32,
+              onPressed: currentIndex < 0 ? null : () => seekSeconds(-10),
+              icon: const Icon(Icons.replay_10)),
+            const SizedBox(width: 16),
+            IconButton(tooltip: 'Forward 10 seconds', iconSize: 32,
+              onPressed: currentIndex < 0 ? null : () => seekSeconds(10),
+              icon: const Icon(Icons.forward_10)),
+          ]),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music),
+              label: const Text('Library')),
+            TextButton.icon(onPressed: showQueue, icon: const Icon(Icons.queue_music),
+              label: const Text('Queue')),
+            if (currentIndex >= 0 && currentIndex < files.length)
+              IconButton(tooltip: 'Add to playlist', icon: const Icon(Icons.playlist_add),
+                onPressed: () => addToPlaylist(files[currentIndex])),
+          ]),
+          const SizedBox(height: 4),
+          TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune),
+            label: const Text('Pitch and tempo')),
+          if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
+          const Spacer(),
+        ]),
+      )),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final length = player.duration ?? Duration.zero;
-    final pos = draggingPlayer && scrubPosition != null ? Duration(milliseconds: scrubPosition!.round()) : player.position;
-    final max = length.inMilliseconds.toDouble().clamp(1.0, double.infinity);
-    if (libraryHome) {
-      final matches = List<int>.generate(files.length, (i) => i).where((i) =>
-        (activePlaylist == null || (playlists[activePlaylist]?.contains(files[i]) ?? false)) && (!favoritesOnly || favorites.contains(files[i])) && displayName(files[i]).toLowerCase().contains(query.toLowerCase())).toList()
-        ..sort((a, b) => sortAscending ? displayName(files[a]).toLowerCase().compareTo(displayName(files[b]).toLowerCase()) : displayName(files[b]).toLowerCase().compareTo(displayName(files[a]).toLowerCase()));
-      return Scaffold(
-        backgroundColor: const Color(0xFF101218),
-        appBar: AppBar(
-          title: const Text('Your Library'),
-          backgroundColor: const Color(0xFF101218),
-          actions: [IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add), onPressed: createPlaylist), IconButton(tooltip: 'Import music', icon: const Icon(Icons.add), onPressed: import)],
-        ),
-        body: SafeArea(child: Column(children: [
-          Padding(padding: const EdgeInsets.all(16),
-            child: TextField(
-              onChanged: (value) => setState(() => query = value),
-              decoration: InputDecoration(
-                hintText: 'Search songs',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              ),
-            ),
-          ),
-          SizedBox(height: 52, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-            ChoiceChip(label: const Text('Library'), selected: activePlaylist == null, onSelected: (_) => setState(() => activePlaylist = null)),
-            const SizedBox(width: 8),
-            for (final name in playlists.keys) ...[
-              InputChip(label: Text(name), selected: activePlaylist == name,
-                onSelected: (_) => setState(() => activePlaylist = name),
-                onDeleted: () => playlistMenu(name), deleteIcon: const Icon(Icons.more_horiz, size: 18)),
-              const SizedBox(width: 8),
-            ],
-          ])),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
-            ChoiceChip(label: const Text('All songs'), selected: !favoritesOnly, onSelected: (_) => setState(() => favoritesOnly = false)),
-            const SizedBox(width: 8),
-            ChoiceChip(label: const Text('Favorites'), selected: favoritesOnly, onSelected: (_) => setState(() => favoritesOnly = true)),
-            const Spacer(),
-            IconButton(tooltip: 'Change sort order', icon: Icon(sortAscending ? Icons.sort_by_alpha : Icons.sort), onPressed: () => setState(() => sortAscending = !sortAscending)),
-          ])),
-          Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6), child: Align(alignment: Alignment.centerLeft, child: Text(activePlaylist == null ? '${files.length} songs' : '${activePlaylist!} • ${matches.length} songs', style: const TextStyle(color: Colors.white60)))),
-          Expanded(child: files.isEmpty
-            ? Center(child: FilledButton.icon(onPressed: import,
-                icon: const Icon(Icons.add), label: const Text('Import your music')))
-            : ListView.builder(
-                itemCount: matches.length,
-                itemBuilder: (_, row) {
-                  final i = matches[row];
-                  return ListTile(
-                    leading: const Icon(Icons.music_note, color: Colors.tealAccent),
-                    title: Text(displayName(files[i]), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(i == player.currentIndex ? 'Now playing' : 'Local audio', style: const TextStyle(color: Colors.white60)),
-                    trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert, color: Colors.white70), onPressed: () => trackMenu(files[i])),
-                    onTap: () async {
-                      await selectAndPlayTrack(i);
-                      if (mounted) setState(() => libraryHome = false);
-                    },
-                  );
-                },
-              )),
-          if (files.isNotEmpty) ListTile(
-            tileColor: const Color(0xFF29483F),
-            leading: const Icon(Icons.graphic_eq, color: Colors.tealAccent),
-            title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-            onTap: () => setState(() => libraryHome = false),
-            trailing: IconButton(color: Colors.white,
-              icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
-              onPressed: () async { if (nativePitchPreview) { await stopNativePitchPreview(); await player.pause(); } else { player.playing ? await player.pause() : await player.play(); } }),
-          ),
-          if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
-        ])),
-      );
-    }
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onVerticalDragEnd: (details) { if ((details.primaryVelocity ?? 0) > 450) showLibrary(); },
-      child: Scaffold(
-      backgroundColor: const Color(0xFF101218),
-      appBar: AppBar(backgroundColor: Colors.transparent, title: const Text('Now Playing'),
-        actions: [IconButton(tooltip: 'Queue', onPressed: showQueue, icon: const Icon(Icons.queue_music)), IconButton(tooltip: 'Library', onPressed: showLibrary, icon: const Icon(Icons.library_music)), IconButton(tooltip: 'Import songs', onPressed: import, icon: const Icon(Icons.add_circle_outline))]),
-      body: SafeArea(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
-        const Spacer(),
-        Expanded(flex: 5, child: Container(
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(colors: [Color(0xFF295548), Color(0xFF181B2B)])),
-          child: const Center(child: Icon(Icons.music_note, size: 120, color: Color(0xFF9BE9C6))))),
-        const SizedBox(height: 24),
-        Row(children: [Expanded(child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold, color: Colors.white))),
-          if (files.isNotEmpty) IconButton(tooltip: 'Favorite', onPressed: () => toggleFavorite(files[player.currentIndex ?? 0]), icon: Icon(favorites.contains(files[player.currentIndex ?? 0]) ? Icons.favorite : Icons.favorite_border, color: const Color(0xFF9BE9C6)))
-        ]),
-        const SizedBox(height: 8),
-        Text(files.isEmpty ? 'Tap + to import local audio' : 'Playing from Your Library',
-          style: const TextStyle(color: Colors.white60)),
-        const SizedBox(height: 22),
-        Slider(value: pos.inMilliseconds.toDouble().clamp(0.0, max), max: max,
-          onChangeStart: length == Duration.zero ? null : (v) => setState(() { draggingPlayer = true; scrubPosition = v; }),
-          onChanged: length == Duration.zero ? null : (v) => setState(() => scrubPosition = v),
-          onChangeEnd: length == Duration.zero ? null : (v) async {
-            await player.seek(Duration(milliseconds: v.round()));
-            if (mounted) setState(() { draggingPlayer = false; scrubPosition = null; });
+    return Stack(children: [
+      buildLibrary(),
+      if (!libraryHome) AnimatedContainer(
+        duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        transform: Matrix4.translationValues(0, playerDrag, 0),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
+          onVerticalDragUpdate: (details) => setState(() {
+            playerDrag = (playerDrag + details.delta.dy).clamp(0.0, MediaQuery.sizeOf(context).height).toDouble();
           }),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(clock(pos), style: const TextStyle(color: Colors.white70)),
-          Text(clock(length), style: const TextStyle(color: Colors.white70))
-        ]),
-        const SizedBox(height: 12),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          IconButton(color: shuffle ? Colors.tealAccent : Colors.white,
-            onPressed: () async { shuffle = !shuffle; await player.setShuffleModeEnabled(shuffle); await saveLibrary(); setState(() {}); },
-            icon: const Icon(Icons.shuffle)),
-          IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1), icon: const Icon(Icons.skip_previous), iconSize: 36),
-          IconButton.filled(onPressed: files.isEmpty ? import : () async { if (nativePitchPreview) { await stopNativePitchPreview(); await player.pause(); } else { player.playing ? await player.pause() : await player.play(); } },
-            icon: Icon(player.playing ? Icons.pause : Icons.play_arrow), iconSize: 38),
-          IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1), icon: const Icon(Icons.skip_next), iconSize: 36),
-          Column(mainAxisSize: MainAxisSize.min, children: [
-            IconButton(color: repeat == 0 ? Colors.white : Colors.tealAccent,
-              onPressed: () async { repeat = (repeat + 1) % 3;
-                await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]); await saveLibrary(); setState(() {}); },
-              icon: Icon(repeat == 2 ? Icons.repeat_one : Icons.repeat)),
-            Text(['OFF', 'ALL', 'ONE'][repeat], style: const TextStyle(fontSize: 10, color: Colors.white))
-          ])
-        ]),
-        const SizedBox(height: 8),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          IconButton(tooltip: 'Back 10 seconds', iconSize: 32,
-            onPressed: files.isEmpty ? null : () => seekSeconds(-10), icon: const Icon(Icons.replay_10)),
-          const SizedBox(width: 16),
-          IconButton(tooltip: 'Forward 10 seconds', iconSize: 32,
-            onPressed: files.isEmpty ? null : () => seekSeconds(10), icon: const Icon(Icons.forward_10)),
-        ]),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music), label: const Text('Library')),
-          TextButton.icon(onPressed: showQueue, icon: const Icon(Icons.queue_music), label: const Text('Queue')),
-          if (files.isNotEmpty) IconButton(tooltip: 'Add to playlist', icon: const Icon(Icons.playlist_add), onPressed: () => addToPlaylist(files[player.currentIndex ?? 0])),
-        ]),
-        const SizedBox(height: 8),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Text('Speed', style: TextStyle(color: Colors.white70)),
-          const SizedBox(width: 12),
-          DropdownButton<double>(value: playbackSpeed, dropdownColor: const Color(0xFF252A35),
-            items: [0.75, 1.0, 1.25, 1.5, 2.0].map((v) => DropdownMenuItem(value: v, child: Text('${v}×'))).toList(),
-            onChanged: (v) async { if (v == null) return; if (!nativePitchPreview) await player.setSpeed(v); setState(() => playbackSpeed = v); await updateNativePitchTempo(); await saveLibrary(); }),
-        ]),
-        TextButton.icon(onPressed: () => showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          builder: (context) => StatefulBuilder(builder: (context, refresh) => SafeArea(
-            child: Padding(padding: const EdgeInsets.all(20), child: Column(
-              mainAxisSize: MainAxisSize.min, children: [
-                const Text('Pitch / tempo engine', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                const Text('Native pitch preview plays the selected file through the iOS audio engine. It temporarily pauses normal playback. FLAC support depends on iOS decoding.', textAlign: TextAlign.center),
-                TextButton.icon(onPressed: () async {
-                  if (nativePitchPreview) { await stopNativePitchPreview(); } else { await startNativePitchPreview(); }
-                  refresh(() {});
-                }, icon: Icon(nativePitchPreview ? Icons.stop_circle : Icons.play_circle),
-                  label: Text(nativePitchPreview ? 'Stop native pitch preview' : 'Start native pitch preview (audible pitch)')),
-                if (nativePitchPreview) const Text('Preview mode: use the pitch and tempo controls below. Stop preview to return to regular player.', textAlign: TextAlign.center),
-                const SizedBox(height: 20),
-                TextButton(onPressed: () => showPitchWheel(refresh), child: Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones, ${pitchCents.toStringAsFixed(0)} cents')),
-                Text('Semitones: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones'),
-                Slider(value: pitchSemitones.toDouble(), min: -12, max: 12, divisions: 24,
-                  onChanged: (v) { refresh(() => pitchSemitones = v.round()); setState(() {}); },
-                  onChangeEnd: (v) async { await updateNativePitchTempo(); await saveLibrary(); }),
-                Text('Fine pitch: ${pitchCents.toStringAsFixed(0)} cents'),
-                Slider(value: pitchCents, min: -99, max: 99, divisions: 198,
-                  onChanged: (v) { refresh(() => pitchCents = v); setState(() {}); },
-                  onChangeEnd: (v) async { await updateNativePitchTempo(); await saveLibrary(); }),
-                TextButton(onPressed: () => showTempoWheel(refresh), child: Text('Tempo: ${(playbackSpeed * 100).toStringAsFixed(0)}%')),
-                Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
-                  onChanged: (v) { refresh(() => playbackSpeed = v); setState(() {}); },
-                  onChangeEnd: (v) async {
-                    await player.setSpeed(v);
-                    await updateNativePitchTempo();
-                    await saveLibrary();
-                  }),
-                TextButton(onPressed: () async {
-                  refresh(() { pitchCents = 0; pitchSemitones = 0; playbackSpeed = 1; });
-                  setState(() {});
-                  await player.setSpeed(1);
-                  await updateNativePitchTempo();
-                  await saveLibrary();
-                }, child: const Text('Reset pitch and tempo')),
-              ],
-            )),
-          )),
-        ), icon: const Icon(Icons.tune), label: const Text('Pitch / tempo (experimental)')),
-        TextButton.icon(onPressed: () => showModalBottomSheet(context: context,
-          builder: (_) => const SafeArea(child: Padding(padding: EdgeInsets.all(24),
-            child: Text('EQ is planned, but is not implemented in this prototype.')))),
-          icon: const Icon(Icons.equalizer), label: const Text('Audio settings')),
-        if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
-        const Spacer()
-      ]))),
-    ));
+          onVerticalDragEnd: finishPlayerDrag,
+          onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
+          child: buildPlayer(),
+        ),
+      ),
+    ]);
   }
+}
+
+/// Displays the most recently rendered PCM samples, not an overview of the file.
+class LiveWaveformPainter extends CustomPainter {
+  final List<double> samples;
+  final bool isPlaying;
+  const LiveWaveformPainter(this.samples, {required this.isPlaying});
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = isPlaying ? const Color(0xFF9BE9C6) : const Color(0xFF6B8E84);
+    final count = samples.length;
+    if (count == 0) return;
+    final stride = size.width / count;
+    final width = math.max(2.0, stride * 0.53);
+    for (var i = 0; i < count; i++) {
+      final height = math.max(3.0, samples[i].clamp(0.0, 1.0).toDouble() * size.height);
+      final left = i * stride + (stride - width) / 2;
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, (size.height - height) / 2, width, height),
+        const Radius.circular(3),
+      );
+      canvas.drawRRect(rect, paint);
+    }
+  }
+  @override
+  bool shouldRepaint(covariant LiveWaveformPainter old) =>
+      old.isPlaying != isPlaying || old.samples != samples;
 }

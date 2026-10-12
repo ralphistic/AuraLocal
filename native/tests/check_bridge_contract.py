@@ -13,17 +13,27 @@ def require(ok, message):
 require("MethodChannel('auralocal/native_dsp')" in dart and
         'name: "auralocal/native_dsp"' in bridge,
         "Flutter and iOS method-channel names match")
-for method in ("playFile", "stopFile", "setTimePitch"):
-    require((f"invokeMethod('{method}'" in dart or f"invokeMethod<bool>('{method}'" in dart) and f'case "{method}"' in bridge,
+require("just_audio" not in dart and "AudioPlayer(" not in dart and
+        "nativePitchPreview" not in dart and "nativePitchPreview" not in bridge,
+        "Single native playback engine; no secondary player or preview route")
+for method in ("playIndex", "setQueue", "getState", "pauseFile", "resumeFile",
+               "seekFile", "skipFile", "setTimePitch", "setWaveformEnabled"):
+    require((f"invokeMethod('{method}'" in dart or
+             f"invokeMethod<int>('{method}'" in dart or
+             f"invokeMapMethod<String, dynamic>('{method}'" in dart) and
+            f'case "{method}"' in bridge,
             f"{method} is implemented at both ends")
-require("await player.pause();" in dart and
-        "invokeMethod<bool>('playFile'" in dart and
-        "if (started != true) throw PlatformException" in dart,
-        "handoff pauses normal player and requires native confirmation")
+require("DropdownButton<double>" not in dart and "Playing from Your Library" not in dart,
+        "Obsolete speed dropdown and redundant label removed")
+require("LiveWaveformPainter" in dart and "installTap(onBus:" in graph and
+        "waveform()" in graph,
+        "Live waveform samples come from native audio output")
+require("onVerticalDragUpdate:" in dart and "AnimatedContainer(" in dart,
+        "Interactive drag-to-minimize and UI animation are present")
 require("source.scheduleSegment(file" in graph and "source.play()" in graph and
         "engine.connect(equalizer, to: timePitch" in graph,
-        "FLAC audio is scheduled through native pitch node")
+        "FLAC runs through the existing Apple TimePitch graph")
 require("swiftc native/ios/AuraDspGraph.swift" in workflow and
         "/tmp/auralocal-production-graph /tmp/auralocal-tone.flac" in workflow,
-        "production graph audio test gates release")
-print("PASS: static Flutter/native playback contract")
+        "Production graph audio test gates release")
+print("PASS: unified native transport contract")

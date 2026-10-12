@@ -1,51 +1,132 @@
 import Flutter
 import UIKit
+import MediaPlayer
+import AVFoundation
 
+/// One transport, one AVAudioEngine and one file player. Flutter never opens audio output.
 final class AuraPitchBridge {
     private let graph = AuraDspGraph()
     private let channel: FlutterMethodChannel
-    private var playingNative = false
+    private var queue: [String] = []
+    private var currentIndex = -1
+    private var repeatMode = 0
+    private var shuffle = false
+    private var displayedTitle: String?
+    private var displayedArtist: String?
+    private var lastInfoUpdate = Date.distantPast
 
     init(messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(name: "auralocal/native_dsp", binaryMessenger: messenger)
+        graph.onFinished = { [weak self] in self?.handleFinished() }
+        registerRemoteCommands()
+        NotificationCenter.default.addObserver(self, selector: #selector(audioInterrupted(_:)),
+                                               name: AVAudioSession.interruptionNotification, object: nil)
         channel.setMethodCallHandler { [weak self] call, result in
-            guard let self = self else { result(FlutterError(code: "UNAVAILABLE", message: "Bridge released", details: nil)); return }
+            guard let self = self else {
+                result(FlutterError(code: "UNAVAILABLE", message: "Bridge released", details: nil))
+                return
+            }
             do {
                 switch call.method {
+                case "setQueue":
+                    guard let args = call.arguments as? [String: Any],
+                          let paths = args["paths"] as? [String] else {
+                        throw self.argumentError("Missing file paths")
+                    }
+                    let oldPath = self.currentIndex >= 0 && self.currentIndex < self.queue.count
+                        ? self.queue[self.currentIndex] : nil
+                    self.queue = paths
+                    self.repeatMode = (args["repeat"] as? Int ?? self.repeatMode)
+                    self.shuffle = (args["shuffle"] as? Bool ?? self.shuffle)
+                    if let oldPath = oldPath, let newIndex = paths.firstIndex(of: oldPath) {
+                        self.currentIndex = newIndex
+                    } else if !self.graph.isPlaying {
+                        self.currentIndex = -1
+                    }
+                    result(true)
+                case "playIndex":
+                    guard let index = (call.arguments as? [String: Any])?["index"] as? Int else {
+                        throw self.argumentError("Missing track index")
+                    }
+                    try self.start(index: index, at: 0)
+                    result(true)
                 case "playFile":
                     guard let args = call.arguments as? [String: Any],
                           let path = args["path"] as? String else {
-                        result(FlutterError(code: "ARGUMENT", message: "Missing file path", details: nil)); return
+                        throw self.argumentError("Missing file path")
                     }
-                    let position = (args["position"] as? NSNumber)?.doubleValue ?? 0
-                    try self.graph.playFile(at: path, positionSeconds: position)
-                    self.playingNative = true
+                    self.displayedTitle = nil
+                    self.displayedArtist = nil
+                    try self.graph.playFile(at: path, positionSeconds: (args["position"] as? NSNumber)?.doubleValue ?? 0)
+                    self.currentIndex = self.queue.firstIndex(of: path) ?? -1
+                    self.updateNowPlaying(force: true)
+                    self.report()
                     result(true)
                 case "stopFile":
                     self.graph.stopPlayback()
-                    self.playingNative = false
+                    self.updateNowPlaying(force: true)
+                    self.report()
                     result(true)
                 case "pauseFile":
                     self.graph.pausePlayback()
+                    self.updateNowPlaying(force: true)
+                    self.report()
                     result(true)
                 case "resumeFile":
                     self.graph.resumePlayback()
+                    self.updateNowPlaying(force: true)
+                    self.report()
                     result(true)
                 case "seekFile":
-                    let seconds = (call.arguments as? [String: Any])?["position"] as? NSNumber
-                    guard let seconds else { result(FlutterError(code: "ARGUMENT", message: "Missing position", details: nil)); return }
+                    guard let seconds = (call.arguments as? [String: Any])?["position"] as? NSNumber else {
+                        throw self.argumentError("Missing position")
+                    }
                     try self.graph.seekPlayback(to: seconds.doubleValue)
+                    self.updateNowPlaying(force: true)
+                    self.report()
                     result(true)
+                case "skipFile":
+                    let delta = (call.arguments as? [String: Any])?["delta"] as? Int ?? 1
+                    try self.skip(by: delta)
+                    result(self.currentIndex)
                 case "getPosition":
                     result(self.graph.positionSeconds)
+                case "getState":
+                    self.updateNowPlaying(force: false)
+                    result([
+                        "index": self.currentIndex,
+                        "position": self.graph.positionSeconds,
+                        "duration": self.graph.durationSeconds,
+                        "playing": self.graph.isPlaying,
+                        "finished": self.graph.finished,
+                        "waveform": self.graph.waveform()
+                    ] as [String: Any])
+                case "setWaveformEnabled":
+                    let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+                    self.graph.setWaveformEnabled(enabled)
+                    result(true)
                 case "setTimePitch":
                     guard let args = call.arguments as? [String: Any],
                           let tempo = (args["tempo"] as? NSNumber)?.floatValue,
                           let cents = (args["cents"] as? NSNumber)?.floatValue else {
-                        result(FlutterError(code: "ARGUMENT", message: "Missing tempo or cents", details: nil)); return
+                        throw self.argumentError("Missing tempo or cents")
                     }
                     try self.graph.setTimePitch(tempo: tempo, semitones: cents / 100)
-                    result(self.playingNative)
+                    self.updateNowPlaying(force: true)
+                    result(true)
+                case "setEQ":
+                    guard let args = call.arguments as? [String: Any],
+                          let numbers = args["gains"] as? [NSNumber] else {
+                        throw self.argumentError("Missing ten EQ gains")
+                    }
+                    try self.graph.setEQ(numbers.map { $0.floatValue }, enabled: args["enabled"] as? Bool ?? false)
+                    result(true)
+                case "setNowPlaying":
+                    let args = call.arguments as? [String: Any] ?? [:]
+                    self.displayedTitle = args["title"] as? String
+                    self.displayedArtist = args["artist"] as? String
+                    self.updateNowPlaying(force: true)
+                    result(true)
                 default:
                     result(FlutterMethodNotImplemented)
                 }
@@ -54,4 +135,131 @@ final class AuraPitchBridge {
             }
         }
     }
+
+    private func argumentError(_ message: String) -> NSError {
+        NSError(domain: "AuraDSP", code: 10, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
+    private func start(index: Int, at position: Double) throws {
+        guard index >= 0 && index < queue.count else { throw argumentError("Track index outside library") }
+        displayedTitle = nil
+        displayedArtist = nil
+        try graph.playFile(at: queue[index], positionSeconds: position)
+        currentIndex = index
+        updateNowPlaying(force: true)
+        report()
+    }
+
+    private func candidateIndex(after delta: Int) -> Int? {
+        guard !queue.isEmpty else { return nil }
+        if repeatMode == 2 && delta > 0 { return currentIndex }
+        if shuffle && delta > 0 && queue.count > 1 {
+            return (currentIndex + Int.random(in: 1..<queue.count)) % queue.count
+        }
+        let proposed = currentIndex + delta
+        if proposed >= 0 && proposed < queue.count { return proposed }
+        if repeatMode == 1 { return (proposed % queue.count + queue.count) % queue.count }
+        return nil
+    }
+
+    private func skip(by delta: Int) throws {
+        if delta < 0 && graph.positionSeconds > 3 {
+            try graph.seekPlayback(to: 0)
+            updateNowPlaying(force: true)
+            report()
+            return
+        }
+        if let index = candidateIndex(after: delta) {
+            try start(index: index, at: 0)
+        } else {
+            graph.stopPlayback()
+            updateNowPlaying(force: true)
+            report()
+        }
+    }
+
+    private func handleFinished() {
+        do {
+            if let index = candidateIndex(after: 1) {
+                try start(index: index, at: 0)
+            } else {
+                graph.stopPlayback()
+                updateNowPlaying(force: true)
+                report()
+            }
+        } catch {
+            graph.stopPlayback()
+            report(error: error.localizedDescription)
+        }
+    }
+
+    private func report(error: String? = nil) {
+        var event: [String: Any] = [
+            "index": currentIndex, "playing": graph.isPlaying,
+            "position": graph.positionSeconds, "duration": graph.durationSeconds
+        ]
+        if let error = error { event["error"] = error }
+        channel.invokeMethod("nativePlaybackEvent", arguments: event)
+    }
+
+    private func updateNowPlaying(force: Bool) {
+        let now = Date()
+        guard force || now.timeIntervalSince(lastInfoUpdate) > 1 else { return }
+        lastInfoUpdate = now
+        let path = currentIndex >= 0 && currentIndex < queue.count ? queue[currentIndex] : nil
+        let fileTitle = path.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? "AuraLocal"
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+            MPMediaItemPropertyTitle: displayedTitle ?? fileTitle,
+            MPMediaItemPropertyArtist: displayedArtist ?? "Unknown Artist",
+            MPMediaItemPropertyPlaybackDuration: graph.durationSeconds,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: graph.positionSeconds,
+            MPNowPlayingInfoPropertyPlaybackRate: graph.isPlaying ? Double(graph.timePitch.rate) : 0.0
+        ]
+    }
+
+    @objc private func audioInterrupted(_ notice: Notification) {
+        guard let info = notice.userInfo,
+              let number = info[AVAudioSessionInterruptionTypeKey] as? NSNumber,
+              let type = AVAudioSession.InterruptionType(rawValue: number.uintValue) else { return }
+        if type == .began {
+            graph.pausePlayback()
+            updateNowPlaying(force: true)
+            report()
+        }
+    }
+
+    private func registerRemoteCommands() {
+        let commands = MPRemoteCommandCenter.shared()
+        commands.playCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            self.graph.resumePlayback(); self.updateNowPlaying(force: true); self.report()
+            return .success
+        }
+        commands.pauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            self.graph.pausePlayback(); self.updateNowPlaying(force: true); self.report()
+            return .success
+        }
+        commands.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            do { try self.skip(by: 1); return .success } catch { return .commandFailed }
+        }
+        commands.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            do { try self.skip(by: -1); return .success } catch { return .commandFailed }
+        }
+        commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self = self, let change = event as? MPChangePlaybackPositionCommandEvent else {
+                return .commandFailed
+            }
+            do {
+                try self.graph.seekPlayback(to: change.positionTime)
+                self.updateNowPlaying(force: true)
+                self.report()
+                return .success
+            } catch { return .commandFailed }
+        }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 }
