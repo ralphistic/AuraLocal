@@ -23,6 +23,8 @@ final class AuraDspGraph {
     private var needsInterruptionReprime = false
     var onFinished: (() -> Void)?
     private let waveLock = NSLock()
+    private let analysisQueue = DispatchQueue(label: "auralocal.spectrum", qos: .userInitiated)
+    private var analysisBusy = false
     private var waveValues: [Float] = Array(repeating: 0, count: 48)
     private var waveEnabled = false
     let centers: [Float] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
@@ -67,42 +69,67 @@ final class AuraDspGraph {
         engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
         let mixer = engine.mainMixerNode
         mixer.installTap(onBus: 0, bufferSize: 1024, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, _ in
-            guard let self = self, let audio = buffer.floatChannelData, buffer.frameLength > 0 else { return }
+            guard let self = self, let audio = buffer.floatChannelData,
+                  buffer.frameLength > 0 else { return }
             self.waveLock.lock()
-            defer { self.waveLock.unlock() }
-            guard self.waveEnabled else { return }
-            let frames = Int(buffer.frameLength)
+            let shouldProcess = self.waveEnabled && !self.analysisBusy
+            if shouldProcess { self.analysisBusy = true }
+            self.waveLock.unlock()
+            guard shouldProcess else { return }
+            // The real-time audio callback only copies a short PCM snapshot.
+            // Frequency analysis runs off the render thread to avoid glitches.
             let channels = Int(buffer.format.channelCount)
-            // A live *spectrum analyzer*, not a frozen overview of the track.
-            // Goertzel filters estimate log-spaced musical frequency bands from
-            // the latest PCM window. Fast attack / slower release prevents jitter.
-            let size = self.waveValues.count
-            let window = min(frames, 512)
-            guard channels > 0, window > 32 else { return }
+            let window = min(Int(buffer.frameLength), 512)
+            guard channels > 0, window > 32 else {
+                self.waveLock.lock()
+                self.analysisBusy = false
+                self.waveLock.unlock()
+                return
+            }
+            var samples = [Float](repeating: 0, count: window)
+            for frame in 0..<window {
+                var mixed: Float = 0
+                for channel in 0..<channels { mixed += audio[channel][frame] }
+                samples[frame] = mixed / Float(channels)
+            }
             let rate = Double(buffer.format.sampleRate)
-            for band in 0..<size {
-                let hz = 55.0 * pow(13500.0 / 55.0, Double(band) / Double(max(1, size - 1)))
-                let coefficient = Float(2.0 * cos(2.0 * Double.pi * hz / rate))
-                var q1: Float = 0
-                var q2: Float = 0
-                for frame in 0..<window {
-                    var sample: Float = 0
-                    for channel in 0..<channels { sample += audio[channel][frame] }
-                    sample /= Float(channels)
-                    let taper = Float(0.5 - 0.5 * cos(2.0 * Double.pi * Double(frame) / Double(window - 1)))
-                    let q0 = sample * taper + coefficient * q1 - q2
-                    q2 = q1
-                    q1 = q0
-                }
-                let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
-                let amplitude = sqrt(power) * (4.0 / Float(window))
-                let target = min(1, sqrt(max(0, amplitude * 4.5)))
-                let previous = self.waveValues[band]
-                self.waveValues[band] = previous + (target - previous) * (target > previous ? 0.65 : 0.13)
+            self.analysisQueue.async { [weak self] in
+                self?.analyzeSpectrum(samples, sampleRate: rate)
             }
         }
+
         try engine.start()
         configured = true
+    }
+    private func analyzeSpectrum(_ samples: [Float], sampleRate: Double) {
+        let window = samples.count
+        let bins = 48
+        var target = [Float](repeating: 0, count: bins)
+        // 48 log-spaced equalizer-style bars. Goertzel is cheap at this window size.
+        for band in 0..<bins {
+            let hz = 55.0 * pow(13500.0 / 55.0, Double(band) / Double(bins - 1))
+            let coefficient = Float(2.0 * cos(2.0 * Double.pi * hz / sampleRate))
+            var q1: Float = 0
+            var q2: Float = 0
+            for frame in 0..<window {
+                let taper = Float(0.5 - 0.5 * cos(2.0 * Double.pi * Double(frame) / Double(window - 1)))
+                let q0 = samples[frame] * taper + coefficient * q1 - q2
+                q2 = q1
+                q1 = q0
+            }
+            let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
+            let amplitude = sqrt(power) * (4.0 / Float(window))
+            target[band] = min(1, sqrt(max(0, amplitude * 4.5)))
+        }
+        waveLock.lock()
+        if waveEnabled {
+            for i in 0..<bins {
+                let previous = waveValues[i]
+                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 0.65 : 0.13)
+            }
+        }
+        analysisBusy = false
+        waveLock.unlock()
     }
     func playFile(at path: String, positionSeconds: Double = 0) throws {
         try configure()
