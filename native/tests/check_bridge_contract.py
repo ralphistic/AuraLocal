@@ -48,7 +48,7 @@ require("AVAudioSession.sharedInstance()" in graph and "try session.setActive(tr
 require("ProcessInfo.processInfo.systemUptime" in graph and
         "elapsed * Double(timePitch.rate)" in graph,
         "Timeline follows wall-clock media time and respects tempo")
-require("Goertzel filters" in graph and "spectrumTicker" in dart and
+require("Goertzel" in graph and "analysisQueue" in graph and "spectrumTicker" in dart and
         "Duration(milliseconds: 33)" in dart,
         "Live equalizer-style frequency analyzer with display-vsync smoothing")
 require(dart.count("Slider(value: pitchCents") == 0 and
