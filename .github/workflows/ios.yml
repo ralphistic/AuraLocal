@@ -56,18 +56,29 @@ jobs:
           from pathlib import Path
           p = Path('ios/Runner/AppDelegate.swift')
           data = p.read_text()
-          # Flutter's generated template may use implicit plugin registration.
-          # Insert directly after the didFinishLaunching method declaration.
-          import re
-          data = data.replace('import UIKit', 'import UIKit\\nimport Flutter')
-          data = data.replace('class AppDelegate: FlutterAppDelegate {', 'class AppDelegate: FlutterAppDelegate {\\n  private var pitchBridge: AuraPitchBridge?')
-          pattern = r'(override func application\\([\\s\\S]*?didFinishLaunchingWithOptions[\\s\\S]*?\\)\\s*->\\s*Bool\\s*\\{)'
-          match = re.search(pattern, data)
-          if not match:
-              raise RuntimeError('Cannot locate didFinishLaunching method')
-          injection = '\\n    if let controller = window?.rootViewController as? FlutterViewController {\\n      pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)\\n    }'
-          data = data[:match.end()] + injection + data[match.end():]
-          p.write_text(data)
+          print('Generated AppDelegate before modification:')
+          print(data)
+          # Use a complete AppDelegate with an explicit Flutter method-channel
+          # registration rather than guessing which template Flutter generated.
+          p.write_text("""import UIKit
+          import Flutter
+
+          @main
+          @objc class AppDelegate: FlutterAppDelegate {
+            private var pitchBridge: AuraPitchBridge?
+
+            override func application(
+              _ application: UIApplication,
+              didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+            ) -> Bool {
+              GeneratedPluginRegistrant.register(with: self)
+              if let controller = window?.rootViewController as? FlutterViewController {
+                pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)
+              }
+              return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+            }
+          }
+          """)
           PY
       - name: Enable background audio
         run: |
