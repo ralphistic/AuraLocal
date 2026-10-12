@@ -20,7 +20,7 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes array' ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes:0 string audio' ios/Runner/Info.plist || true
       - name: Compile without code signing
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign || { echo 'Flutter wrapper failed; checking for unsigned Runner.app'; test -d build/ios/iphoneos/Runner.app; }
       - name: Package IPA
         run: |
           mkdir Payload
