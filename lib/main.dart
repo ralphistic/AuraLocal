@@ -114,8 +114,14 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   Future<void> stopNativePitchPreview() async {
-    try { await nativeDsp.invokeMethod('stopFile'); } catch (_) {}
+    if (!nativePitchPreview) return;
+    double position = player.position.inMilliseconds / 1000.0;
+    try {
+      position = (await nativeDsp.invokeMethod<num>('getPosition'))?.toDouble() ?? position;
+      await nativeDsp.invokeMethod('stopFile');
+    } catch (_) {}
     nativePitchPreview = false;
+    await player.seek(Duration(milliseconds: (position * 1000).round()));
     await player.play();
     if (mounted) setState(() {});
   }
@@ -359,9 +365,16 @@ class _MusicPageState extends State<MusicPage> {
   Future<void> seekSeconds(int seconds) async {
     final duration = player.duration;
     if (files.isEmpty || duration == null) return;
-    final target = player.position + Duration(seconds: seconds);
+    final nativeSeconds = nativePitchPreview
+        ? (await nativeDsp.invokeMethod<num>('getPosition'))?.toDouble()
+        : null;
+    final target = Duration(milliseconds: ((nativeSeconds ?? player.position.inMilliseconds / 1000) * 1000).round()) + Duration(seconds: seconds);
     final ms = target.inMilliseconds.clamp(0, duration.inMilliseconds);
-    await player.seek(Duration(milliseconds: ms));
+    if (nativePitchPreview) {
+      await nativeDsp.invokeMethod('seekFile', {'position': ms / 1000.0});
+    } else {
+      await player.seek(Duration(milliseconds: ms));
+    }
   }
 
   void showLibrary() => setState(() => libraryHome = true);
