@@ -11,6 +11,10 @@ final class AuraDspGraph {
     private var startFrame: AVAudioFramePosition = 0
     private var pausedFrame: AVAudioFramePosition = 0
     private var sampleRate: Double = 44100
+    // Playback position is wall-clock based, scaled by TimePitch tempo. AVAudioPlayerNode
+    // sample times can stall or drift after iOS audio-session interruptions.
+    private var anchorSeconds: Double = 0
+    private var anchorUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     private(set) var paused = true
     private(set) var finished = false
     private var generation: Int = 0
@@ -27,11 +31,8 @@ final class AuraDspGraph {
     var isPlaying: Bool { source.isPlaying && !paused && !finished }
     var positionSeconds: Double {
         if paused || finished { return min(durationSeconds, Double(pausedFrame) / sampleRate) }
-        guard let renderTime = source.lastRenderTime,
-              let playerTime = source.playerTime(forNodeTime: renderTime) else {
-            return min(durationSeconds, Double(startFrame) / sampleRate)
-        }
-        return min(durationSeconds, max(0, Double(startFrame + AVAudioFramePosition(playerTime.sampleTime)) / sampleRate))
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - anchorUptime)
+        return min(durationSeconds, max(0, anchorSeconds + elapsed * Double(timePitch.rate)))
     }
     func waveform() -> [Float] {
         waveLock.lock(); defer { waveLock.unlock() }
@@ -69,17 +70,32 @@ final class AuraDspGraph {
             guard self.waveEnabled else { return }
             let frames = Int(buffer.frameLength)
             let channels = Int(buffer.format.channelCount)
+            // A live *spectrum analyzer*, not a frozen overview of the track.
+            // Goertzel filters estimate log-spaced musical frequency bands from
+            // the latest PCM window. Fast attack / slower release prevents jitter.
             let size = self.waveValues.count
-            for bucket in 0..<size {
-                let lower = bucket * frames / size
-                let upper = max(lower + 1, (bucket + 1) * frames / size)
-                var peak: Float = 0
-                for frame in lower..<min(upper, frames) {
-                    var mixed: Float = 0
-                    for channel in 0..<channels { mixed += abs(audio[channel][frame]) }
-                    peak = max(peak, mixed / Float(max(channels, 1)))
+            let window = min(frames, 512)
+            guard channels > 0, window > 32 else { return }
+            let rate = Double(buffer.format.sampleRate)
+            for band in 0..<size {
+                let hz = 55.0 * pow(13500.0 / 55.0, Double(band) / Double(max(1, size - 1)))
+                let coefficient = Float(2.0 * cos(2.0 * Double.pi * hz / rate))
+                var q1: Float = 0
+                var q2: Float = 0
+                for frame in 0..<window {
+                    var sample: Float = 0
+                    for channel in 0..<channels { sample += audio[channel][frame] }
+                    sample /= Float(channels)
+                    let taper = Float(0.5 - 0.5 * cos(2.0 * Double.pi * Double(frame) / Double(window - 1)))
+                    let q0 = sample * taper + coefficient * q1 - q2
+                    q2 = q1
+                    q1 = q0
                 }
-                self.waveValues[bucket] = min(1, peak * 3)
+                let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
+                let amplitude = sqrt(power) * (4.0 / Float(window))
+                let target = min(1, sqrt(max(0, amplitude * 4.5)))
+                let previous = self.waveValues[band]
+                self.waveValues[band] = previous + (target - previous) * (target > previous ? 0.65 : 0.13)
             }
         }
         try engine.start()
@@ -105,6 +121,8 @@ final class AuraDspGraph {
         sampleRate = rate
         startFrame = start
         pausedFrame = start
+        anchorSeconds = Double(start) / rate
+        anchorUptime = ProcessInfo.processInfo.systemUptime
         paused = false
         finished = false
         source.scheduleSegment(file, startingFrame: start,
@@ -121,14 +139,33 @@ final class AuraDspGraph {
         source.play()
     }
     func pausePlayback() {
-        guard isPlaying else { return }
+        // iOS can already have stopped the underlying player by the time its
+        // interruption notification arrives; always record the paused state.
+        guard activeFile != nil, !paused else { return }
         pausedFrame = AVAudioFramePosition(positionSeconds * sampleRate)
-        source.pause()
         paused = true
+        if source.isPlaying { source.pause() }
     }
-    func resumePlayback() {
-        guard paused, activeFile != nil, !finished else { return }
+    func resumePlayback() throws {
+        guard activeFile != nil else {
+            throw NSError(domain: "AuraDSP", code: 7,
+                          userInfo: [NSLocalizedDescriptionKey: "No track is loaded"])
+        }
+        guard paused, !finished else { return }
+#if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: [])
+        // Required after YouTube or another app takes over the output session.
+        try session.setActive(true)
+#endif
+        if !engine.isRunning { try engine.start() }
         source.play()
+        guard source.isPlaying else {
+            throw NSError(domain: "AuraDSP", code: 8,
+                          userInfo: [NSLocalizedDescriptionKey: "The iOS audio engine did not resume"])
+        }
+        anchorSeconds = Double(pausedFrame) / sampleRate
+        anchorUptime = ProcessInfo.processInfo.systemUptime
         paused = false
     }
     func seekPlayback(to seconds: Double) throws {
@@ -146,6 +183,8 @@ final class AuraDspGraph {
         finished = false
         startFrame = 0
         pausedFrame = 0
+        anchorSeconds = 0
+        anchorUptime = ProcessInfo.processInfo.systemUptime
     }
     func setEQ(_ gains: [Float], enabled: Bool) throws {
         guard gains.count == 10, gains.allSatisfy({ $0.isFinite && (-12...12).contains($0) }) else {
@@ -162,7 +201,10 @@ final class AuraDspGraph {
             throw NSError(domain: "AuraDSP", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid tempo or pitch"])
         }
         try configure()
+        let currentPosition = positionSeconds
         timePitch.rate = tempo
         timePitch.pitch = semitones * 100
+        anchorSeconds = currentPosition
+        anchorUptime = ProcessInfo.processInfo.systemUptime
     }
 }

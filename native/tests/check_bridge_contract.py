@@ -37,3 +37,16 @@ require("swiftc native/ios/AuraDspGraph.swift" in workflow and
         "/tmp/auralocal-production-graph /tmp/auralocal-tone.flac" in workflow,
         "Production graph audio test gates release")
 print("PASS: unified native transport contract")
+
+require("AVAudioSession.sharedInstance()" in graph and "try session.setActive(true)" in graph and
+        "func resumePlayback() throws" in graph and "try self.graph.resumePlayback()" in bridge,
+        "Interrupted iOS session is reactivated and engine restarted before resume")
+require("ProcessInfo.processInfo.systemUptime" in graph and
+        "elapsed * Double(timePitch.rate)" in graph,
+        "Timeline follows wall-clock media time and respects tempo")
+require("Goertzel filters" in graph and "spectrumTicker" in dart and
+        "Duration(milliseconds: 33)" in dart,
+        "Live equalizer-style frequency analyzer with display-vsync smoothing")
+require(dart.count("Slider(value: pitchCents") == 0 and
+        "Adjust pitch in semitones and cents" in dart,
+        "Single combined pitch slider opens both picker wheels")

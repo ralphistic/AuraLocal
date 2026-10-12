@@ -73,10 +73,10 @@ final class AuraPitchBridge {
                     self.report()
                     result(true)
                 case "resumeFile":
-                    self.graph.resumePlayback()
+                    try self.graph.resumePlayback()
                     self.updateNowPlaying(force: true)
                     self.report()
-                    result(true)
+                    result(self.graph.isPlaying)
                 case "seekFile":
                     guard let seconds = (call.arguments as? [String: Any])?["position"] as? NSNumber else {
                         throw self.argumentError("Missing position")
@@ -225,6 +225,11 @@ final class AuraPitchBridge {
             graph.pausePlayback()
             updateNowPlaying(force: true)
             report()
+        } else if type == .ended {
+            // Do not auto-resume. A user tap must reactivate the session and
+            // restart the engine if the competing app stopped it.
+            updateNowPlaying(force: true)
+            report()
         }
     }
 
@@ -232,8 +237,12 @@ final class AuraPitchBridge {
         let commands = MPRemoteCommandCenter.shared()
         commands.playCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
-            self.graph.resumePlayback(); self.updateNowPlaying(force: true); self.report()
-            return .success
+            do {
+                try self.graph.resumePlayback()
+                self.updateNowPlaying(force: true)
+                self.report()
+                return self.graph.isPlaying ? .success : .commandFailed
+            } catch { return .commandFailed }
         }
         commands.pauseCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }

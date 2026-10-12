@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,7 +34,7 @@ class MusicPage extends StatefulWidget {
   State<MusicPage> createState() => _MusicPageState();
 }
 
-class _MusicPageState extends State<MusicPage> {
+class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMixin {
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
   final files = <String>[];
   final favorites = <String>{};
@@ -56,7 +57,9 @@ class _MusicPageState extends State<MusicPage> {
   double? scrubPosition;
   bool draggingSeek = false;
   bool waveformVisible = false;
-  List<double> waveform = List.filled(48, 0);
+  final waveformLevels = ValueNotifier<List<double>>(List.filled(48, 0));
+  List<double> waveformTarget = List.filled(48, 0);
+  Ticker? spectrumTicker;
   Timer? pollTimer;
   bool pollBusy = false;
   int tick = 0;
@@ -74,12 +77,25 @@ class _MusicPageState extends State<MusicPage> {
       if (state['error'] is String) setState(() => error = state['error'] as String);
     });
     restoreLibrary();
-    pollTimer = Timer.periodic(const Duration(milliseconds: 100), (_) => pollNative());
+    spectrumTicker = createTicker((_) {
+      if (!waveformVisible || !mounted) return;
+      final previous = waveformLevels.value;
+      final next = List<double>.generate(waveformTarget.length, (i) {
+        final target = isPlaying ? waveformTarget[i] : 0.0;
+        final before = previous[i];
+        return before + (target - before) * (target > before ? 0.38 : 0.16);
+      });
+      waveformLevels.value = next;
+    });
+    // Timeline and spectrum sampling are distinct from the display's vsync.
+    pollTimer = Timer.periodic(const Duration(milliseconds: 33), (_) => pollNative());
   }
 
   @override
   void dispose() {
     pollTimer?.cancel();
+    spectrumTicker?.dispose();
+    waveformLevels.dispose();
     nativeDsp.setMethodCallHandler(null);
     // The iOS audio session owns playback lifecycle; hiding this widget must not
     // accidentally stop audio playing in the background.
@@ -96,7 +112,7 @@ class _MusicPageState extends State<MusicPage> {
       if (waveformVisible) {
         final values = response['waveform'];
         if (values is List) {
-          waveform = values.map((v) => (v as num).toDouble().clamp(0.0, 1.0).toDouble()).toList();
+          waveformTarget = values.map((v) => (v as num).toDouble().clamp(0.0, 1.0).toDouble()).toList();
         }
       }
       applyNativeState(response, repaint: !libraryHome || tick % 5 == 0);
@@ -257,13 +273,22 @@ class _MusicPageState extends State<MusicPage> {
     final shouldPlay = !isPlaying;
     try {
       if (shouldPlay) {
-        await nativeDsp.invokeMethod('resumeFile');
+        final confirmed = await nativeDsp.invokeMethod<bool>('resumeFile');
+        if (confirmed != true) {
+          throw PlatformException(code: 'AUDIO_SESSION', message: 'iOS did not restart audio output');
+        }
       } else {
         await nativeDsp.invokeMethod('pauseFile');
       }
-      if (mounted) setState(() => isPlaying = shouldPlay);
+      // Never show a playing state unless the actual native engine confirms it.
+      final state = await nativeDsp.invokeMapMethod<String, dynamic>('getState');
+      if (state != null) applyNativeState(state);
+      if (mounted) setState(() => error = null);
     } on PlatformException catch (e) {
-      if (mounted) setState(() => error = 'Playback: ${e.message}');
+      if (mounted) setState(() {
+        isPlaying = false;
+        error = 'Playback: ${e.message}';
+      });
     }
   }
 
@@ -296,8 +321,16 @@ class _MusicPageState extends State<MusicPage> {
     await nativeDsp.invokeMethod('setWaveformEnabled', {'enabled': enabled});
     if (mounted) setState(() {
       waveformVisible = enabled;
-      if (!enabled) waveform = List.filled(48, 0);
+      if (!enabled) {
+        waveformTarget = List.filled(48, 0);
+        waveformLevels.value = List.filled(48, 0);
+      }
     });
+    if (enabled) {
+      spectrumTicker?.start();
+    } else {
+      spectrumTicker?.stop();
+    }
   }
 
   void showLibrary() {
@@ -340,7 +373,7 @@ class _MusicPageState extends State<MusicPage> {
   String get title => currentIndex < 0 || currentIndex >= files.length
       ? 'Your music awaits' : displayName(files[currentIndex]);
   String clock(double seconds) {
-    final total = seconds.isFinite ? seconds.round().clamp(0, 360000) : 0;
+    final total = seconds.isFinite ? seconds.floor().clamp(0, 360000) : 0;
     return '${total ~/ 60}:${(total % 60).toString().padLeft(2, '0')}';
   }
 
@@ -539,15 +572,22 @@ class _MusicPageState extends State<MusicPage> {
             const Text('Adjust the one native audio engine. Your original FLAC files remain unchanged.',
               textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 14),
-            TextButton(onPressed: () => showPitchWheel(refresh),
-              child: Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones, ${pitchCents.toStringAsFixed(0)} cents')),
-            Slider(value: pitchSemitones.toDouble(), min: -12, max: 12, divisions: 24,
-              onChanged: (value) { refresh(() => pitchSemitones = value.round()); setState(() {}); },
-              onChangeEnd: (_) => updateNativePitchTempo()),
-            Text('Fine pitch: ${pitchCents.toStringAsFixed(0)} cents'),
-            Slider(value: pitchCents, min: -99, max: 99, divisions: 198,
-              onChanged: (value) { refresh(() => pitchCents = value); setState(() {}); },
-              onChangeEnd: (_) => updateNativePitchTempo()),
+            Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones · ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
+            // One combined pitch control. Tap anywhere on it to open BOTH
+            // precise iOS picker wheels; a second fine-pitch slider is gone.
+            Semantics(
+              button: true,
+              label: 'Adjust pitch in semitones and cents',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => showPitchWheel(refresh),
+                child: AbsorbPointer(child: Slider(
+                  value: ((pitchSemitones * 100 + pitchCents) / 100).clamp(-12.0, 12.0).toDouble(),
+                  min: -12, max: 12,
+                  onChanged: (_) {},
+                )),
+              ),
+            ),
             TextButton(onPressed: () => showTempoWheel(refresh),
               child: Text('Tempo: ${(playbackSpeed * 100).round()}%')),
             Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
@@ -688,9 +728,14 @@ class _MusicPageState extends State<MusicPage> {
             alignment: Alignment.topCenter,
             child: waveformVisible ? Padding(
               padding: const EdgeInsets.only(top: 12, bottom: 6),
-              child: SizedBox(height: 58, width: double.infinity, child: CustomPaint(
-                painter: LiveWaveformPainter(waveform, isPlaying: isPlaying),
-              )),
+              child: SizedBox(height: 58, width: double.infinity,
+                child: ValueListenableBuilder<List<double>>(
+                  valueListenable: waveformLevels,
+                  builder: (_, levels, __) => CustomPaint(
+                    painter: LiveWaveformPainter(levels, isPlaying: isPlaying),
+                  ),
+                ),
+              ),
             ) : const SizedBox(width: double.infinity, height: 0),
           ),
           const SizedBox(height: 12),
