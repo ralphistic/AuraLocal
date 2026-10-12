@@ -61,7 +61,7 @@ class _MusicPageState extends State<MusicPage> {
   Widget build(BuildContext context) {
     final length = player.duration ?? Duration.zero;
     final pos = player.position;
-    final max = length.inMilliseconds.toDouble().clamp(1, double.infinity);
+    final max = length.inMilliseconds.toDouble().clamp(1.0, double.infinity);
     return Scaffold(
       backgroundColor: const Color(0xFF101218),
       appBar: AppBar(backgroundColor: Colors.transparent, title: const Text('AURA LOCAL'),
@@ -79,7 +79,7 @@ class _MusicPageState extends State<MusicPage> {
         Text(files.isEmpty ? 'Tap + to import local audio' : '${files.length} local files',
           style: const TextStyle(color: Colors.white60)),
         const SizedBox(height: 22),
-        Slider(value: pos.inMilliseconds.toDouble().clamp(0, max), max: max,
+        Slider(value: pos.inMilliseconds.toDouble().clamp(0.0, max), max: max,
           onChanged: length == Duration.zero ? null : (v) => player.seek(Duration(milliseconds: v.round()))),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(clock(pos), style: const TextStyle(color: Colors.white70)),
