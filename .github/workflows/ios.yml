@@ -29,8 +29,11 @@ jobs:
           PY
           ffmpeg -v error -y -i /tmp/auralocal-tone.wav -c:a flac /tmp/auralocal-tone.flac
           swift native/tests/audio_pipeline.swift /tmp/auralocal-tone.flac
+          git clone --depth 1 https://github.com/Signalsmith-Audio/signalsmith-stretch.git /tmp/signalsmith-stretch
+          git clone --depth 1 https://github.com/Signalsmith-Audio/linear.git /tmp/signalsmith-stretch/signalsmith-linear
+          clang++ -std=c++17 -O2 -I/tmp/signalsmith-stretch -c native/ios/AuraStretchProcessor.mm -o /tmp/AuraStretchProcessor.o
           cp native/tests/production_graph.swift /tmp/main.swift
-          swiftc native/ios/AuraDspGraph.swift /tmp/main.swift -o /tmp/auralocal-production-graph
+          swiftc native/ios/AuraDspGraph.swift native/ios/AuraStretchRenderer.swift /tmp/main.swift /tmp/AuraStretchProcessor.o -lc++ -o /tmp/auralocal-production-graph
           /tmp/auralocal-production-graph /tmp/auralocal-tone.flac
       - name: Verify Flutter/native playback contract
         run: python3 native/tests/check_bridge_contract.py
@@ -44,6 +47,12 @@ jobs:
           test -f native/ios/AuraDspGraph.swift
           cp native/ios/AuraDspGraph.swift ios/Runner/AuraDspGraph.swift
           cp native/ios/AuraPitchBridge.swift ios/Runner/AuraPitchBridge.swift
+          cp native/ios/AuraStretchRenderer.swift ios/Runner/AuraStretchRenderer.swift
+          cp native/ios/AuraStretchProcessor.h ios/Runner/AuraStretchProcessor.h
+          cp native/ios/AuraStretchProcessor.mm ios/Runner/AuraStretchProcessor.mm
+          mkdir -p ios/Runner/Signalsmith
+          cp /tmp/signalsmith-stretch/signalsmith-stretch.h ios/Runner/Signalsmith/signalsmith-stretch.h
+          cp -R /tmp/signalsmith-stretch/signalsmith-linear ios/Runner/Signalsmith/signalsmith-linear
           python3 - <<'PY'
           from pathlib import Path
           p = Path('ios/Runner.xcodeproj/project.pbxproj')
@@ -60,11 +69,16 @@ jobs:
           abort 'Runner target not found' unless target
           group = project.main_group.find_subpath('Runner', false)
           abort 'Runner group not found' unless group
-          ['AuraDspGraph.swift', 'AuraPitchBridge.swift'].each do |name|
+          ['AuraDspGraph.swift', 'AuraPitchBridge.swift', 'AuraStretchRenderer.swift', 'AuraStretchProcessor.mm'].each do |name|
             reference = group.files.find { |f| f.path == name } || group.new_file(name)
             unless target.source_build_phase.files_references.include?(reference)
               target.source_build_phase.add_file_reference(reference)
             end
+          end
+          target.build_configurations.each do |config|
+            config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', '$(SRCROOT)/Runner/Signalsmith']
+            config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+            config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
           end
           project.save
           RUBY
