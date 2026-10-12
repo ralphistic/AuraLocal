@@ -90,9 +90,12 @@ jobs:
               didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
             ) -> Bool {
               GeneratedPluginRegistrant.register(with: self)
-              if let controller = window?.rootViewController as? FlutterViewController {
-                pitchBridge = AuraPitchBridge(messenger: controller.binaryMessenger)
+              // The Flutter window may not exist during didFinishLaunching.
+              // Register against Flutter's plugin registrar instead of a nullable view.
+              guard let registrar = self.registrar(forPlugin: "AuraPitchBridge") else {
+                fatalError("AuraPitchBridge registrar unavailable")
               }
+              pitchBridge = AuraPitchBridge(messenger: registrar.messenger())
               return super.application(application, didFinishLaunchingWithOptions: launchOptions)
             }
           }
