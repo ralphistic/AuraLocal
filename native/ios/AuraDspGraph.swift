@@ -8,6 +8,38 @@ final class AuraDspGraph {
     let timePitch = AVAudioUnitTimePitch()
     private(set) var configured = false
     private var activeFile: AVAudioFile?
+    private var startFrame: AVAudioFramePosition = 0
+    private var pausedFrame: AVAudioFramePosition = 0
+    private var sampleRate: Double = 44100
+    private var isPaused = false
+
+    var positionSeconds: Double {
+        if isPaused { return Double(pausedFrame) / sampleRate }
+        guard let renderTime = source.lastRenderTime,
+              let playerTime = source.playerTime(forNodeTime: renderTime) else {
+            return Double(startFrame) / sampleRate
+        }
+        return Double(startFrame + AVAudioFramePosition(playerTime.sampleTime)) / sampleRate
+    }
+
+    func pausePlayback() {
+        guard source.isPlaying else { return }
+        pausedFrame = AVAudioFramePosition(positionSeconds * sampleRate)
+        source.pause()
+        isPaused = true
+    }
+
+    func resumePlayback() {
+        if isPaused { source.play(); isPaused = false }
+    }
+
+    func seekPlayback(to seconds: Double) throws {
+        guard let file = activeFile else { return }
+        let path = file.url.path
+        let wasPlaying = source.isPlaying
+        try playFile(at: path, positionSeconds: seconds)
+        if !wasPlaying { pausePlayback() }
+    }
 
     func playFile(at path: String, positionSeconds: Double = 0) throws {
         try configure()
@@ -21,6 +53,10 @@ final class AuraDspGraph {
         let start = AVAudioFramePosition(max(0, positionSeconds) * file.processingFormat.sampleRate)
         guard start < file.length else { throw NSError(domain: "AuraDSP", code: 3, userInfo: [NSLocalizedDescriptionKey: "Start position exceeds file length"]) }
         activeFile = file
+        sampleRate = file.processingFormat.sampleRate
+        startFrame = start
+        pausedFrame = start
+        isPaused = false
         source.scheduleSegment(file, startingFrame: start, frameCount: AVAudioFrameCount(min(file.length - start, Int64(UInt32.max))), at: nil, completionHandler: nil)
         if !engine.isRunning { try engine.start() }
         source.play()
@@ -30,6 +66,9 @@ final class AuraDspGraph {
     func stopPlayback() {
         source.stop()
         activeFile = nil
+        isPaused = false
+        startFrame = 0
+        pausedFrame = 0
     }
     let centers: [Float] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
