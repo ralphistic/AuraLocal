@@ -14,7 +14,7 @@ require("MethodChannel('auralocal/native_dsp')" in dart and
         'name: "auralocal/native_dsp"' in bridge,
         "Flutter and iOS method-channel names match")
 for method in ("playFile", "stopFile", "setTimePitch"):
-    require(f"invokeMethod('{method}'" in dart and f'case "{method}"' in bridge,
+    require((f"invokeMethod('{method}'" in dart or f"invokeMethod<bool>('{method}'" in dart) and f'case "{method}"' in bridge,
             f"{method} is implemented at both ends")
 require("await player.pause();" in dart and
         "invokeMethod<bool>('playFile'" in dart and
