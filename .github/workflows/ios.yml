@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: macos-latest
@@ -45,3 +47,11 @@ jobs:
         with:
           name: AuraLocal-unsigned-IPA
           path: AuraLocal-unsigned.ipa
+      - name: Publish latest unsigned IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view latest-build >/dev/null 2>&1; then
+            gh release create latest-build --title "AuraLocal latest build" --notes "Latest automatically compiled unsigned IPA. Requires signing before iPhone installation." --prerelease
+          fi
+          gh release upload latest-build AuraLocal-unsigned.ipa --clobber
