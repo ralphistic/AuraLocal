@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: auralocal-ipa-publishing
+  cancel-in-progress: false
 jobs:
   build:
     runs-on: macos-latest
@@ -42,16 +45,23 @@ jobs:
           test -d "$APP"
           mkdir Payload
           cp -R "$APP" Payload/
-          zip -qr AuraLocal-unsigned.ipa Payload
+          zip -qr "AuraLocal-build-${{ github.run_number }}-unsigned.ipa" Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: AuraLocal-unsigned-IPA
-          path: AuraLocal-unsigned.ipa
-      - name: Publish latest unsigned IPA
+          name: AuraLocal-build-${{ github.run_number }}-unsigned-IPA
+          path: AuraLocal-build-${{ github.run_number }}-unsigned.ipa
+      - name: Publish numbered IPA and latest download
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          NUMBER="${{ github.run_number }}"
+          FILE="AuraLocal-build-${NUMBER}-unsigned.ipa"
+          TAG="build-${NUMBER}"
+          gh release create "$TAG" "$FILE" --title "AuraLocal Build ${NUMBER}" --notes "Chronological build ${NUMBER} from GitHub Actions run ${{ github.run_id }} (commit ${{ github.sha }}). Unsigned IPA: sign with Signulous before installing." --prerelease
           if ! gh release view latest-build >/dev/null 2>&1; then
             gh release create latest-build --title "AuraLocal latest build" --notes "Latest automatically compiled unsigned IPA. Requires signing before iPhone installation." --prerelease
           fi
+          gh release upload latest-build "$FILE" --clobber
+          cp "$FILE" AuraLocal-unsigned.ipa
           gh release upload latest-build AuraLocal-unsigned.ipa --clobber
+          gh release edit latest-build --notes "Latest: Build ${NUMBER} (Actions run ${{ github.run_id }}). For historical builds, see numbered releases. Unsigned IPA requires Signulous."
