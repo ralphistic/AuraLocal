@@ -38,6 +38,29 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
   final files = <String>[];
   final originalNames = <String, String>{};
+  final eqGains = List<double>.filled(10, 0);
+  bool eqEnabled = false;
+  String eqPreset = 'Flat';
+  String eqAccent = 'Mint';
+  static const eqFrequencies = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
+  static const eqPresets = <String, List<double>>{
+    'Flat': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    'Warm': [3, 3, 2, 1, 0, 0, -1, -1, 0, 0],
+    'Bass Boost': [6, 5, 4, 2, 0, -1, -1, 0, 0, 0],
+    'Vocal Clarity': [-2, -2, -1, 0, 1, 2, 3, 3, 1, 0],
+    'Bright': [-1, 0, 0, 0, 0, 1, 2, 3, 4, 3],
+    'V-shaped': [4, 3, 1, -1, -2, -1, 1, 3, 4, 3],
+    'Soft': [1, 1, 0, 0, 0, -1, -2, -2, -2, -1],
+  };
+  static const eqAccentColors = <String, Color>{
+    'Mint': Color(0xFF9BE9C6),
+    'Violet': Color(0xFFC5A3FF),
+    'Coral': Color(0xFFFF9B91),
+    'Ice': Color(0xFF8DD8FF),
+    'Gold': Color(0xFFFFD18A),
+  };
+  Color get activeEqAccent => eqAccentColors[eqAccent] ?? const Color(0xFF9BE9C6);
+  Timer? eqDebounce;
   final favorites = <String>{};
   final playlists = <String, List<String>>{};
   String? activePlaylist;
@@ -100,6 +123,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   void dispose() {
     pollTimer?.cancel();
     dspWheelDebounce?.cancel();
+    eqDebounce?.cancel();
     spectrumTicker?.dispose();
     waveformLevels.dispose();
     nativeDsp.setMethodCallHandler(null);
@@ -165,6 +189,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed,
       'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones,
       'originalNames': originalNames,
+      'eqGains': eqGains, 'eqEnabled': eqEnabled,
+      'eqPreset': eqPreset, 'eqAccent': eqAccent,
     }));
   }
 
@@ -207,6 +233,23 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           pitchSemitones = (decoded['pitchSemitones'] is int ? decoded['pitchSemitones'] as int : 0).clamp(-12, 12);
           pitchCents = (decoded['pitchCents'] is num ? decoded['pitchCents'] as num : 0).toDouble().clamp(-99.0, 99.0).toDouble();
           playbackSpeed = (decoded['speed'] is num ? decoded['speed'] as num : 1).toDouble().clamp(0.5, 2.0).toDouble();
+          if (decoded['eqGains'] is List) {
+            final levels = decoded['eqGains'] as List;
+            if (levels.length == 10) {
+              for (var i = 0; i < 10; i++) {
+                if (levels[i] is num) {
+                  eqGains[i] = (levels[i] as num).toDouble().clamp(-12.0, 12.0).toDouble();
+                }
+              }
+            }
+          }
+          eqEnabled = decoded['eqEnabled'] == true;
+          final rememberedPreset = decoded['eqPreset'];
+          if (rememberedPreset is String) eqPreset = rememberedPreset;
+          final rememberedAccent = decoded['eqAccent'];
+          if (rememberedAccent is String && eqAccentColors.containsKey(rememberedAccent)) {
+            eqAccent = rememberedAccent;
+          }
           if (decoded['originalNames'] is Map) {
             (decoded['originalNames'] as Map).forEach((path, name) {
               if (path is String && name is String) originalNames[path] = name;
@@ -237,6 +280,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       }
       await syncQueue();
       await updateNativePitchTempo();
+      await applyNativeEQ();
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) setState(() => error = 'Could not restore library: $e');
@@ -679,6 +723,214 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       )));
   }
 
+
+  Future<void> applyNativeEQ() async {
+    try {
+      await nativeDsp.invokeMethod('setEQ', {
+        'gains': eqGains,
+        'enabled': eqEnabled,
+      });
+      await saveLibrary();
+      if (mounted && error?.startsWith('Equalizer:') == true) {
+        setState(() => error = null);
+      }
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Equalizer: ${e.message}');
+    }
+  }
+
+  void scheduleEQUpdate() {
+    eqDebounce?.cancel();
+    eqDebounce = Timer(const Duration(milliseconds: 75), () {
+      applyNativeEQ();
+    });
+  }
+
+  void chooseEQPreset(String name, StateSetter refresh) {
+    final values = eqPresets[name];
+    if (values == null) return;
+    refresh(() {
+      eqPreset = name;
+      for (var i = 0; i < eqGains.length; i++) {
+        eqGains[i] = values[i];
+      }
+    });
+    setState(() {});
+    applyNativeEQ();
+  }
+
+  void showEqualizer() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF161B26),
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, refresh) {
+          final accent = activeEqAccent;
+          final screenHeight = MediaQuery.sizeOf(sheetContext).height;
+          return SafeArea(
+            child: SizedBox(
+              height: screenHeight * 0.76,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 2, 14, 10),
+                child: Column(children: [
+                  Row(children: [
+                    Icon(Icons.equalizer, color: accent, size: 27),
+                    const SizedBox(width: 12),
+                    const Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Audio Equalizer', style: TextStyle(
+                          fontSize: 21, fontWeight: FontWeight.bold)),
+                        Text('10-band • native audio processing',
+                          style: TextStyle(fontSize: 12, color: Colors.white60)),
+                      ],
+                    )),
+                    Switch.adaptive(
+                      value: eqEnabled,
+                      activeColor: accent,
+                      onChanged: (enabled) {
+                        refresh(() => eqEnabled = enabled);
+                        setState(() {});
+                        applyNativeEQ();
+                      },
+                    ),
+                  ]),
+                  const SizedBox(height: 16),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: [
+                      for (final name in eqPresets.keys) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(right: 7),
+                          child: ChoiceChip(
+                            label: Text(name),
+                            selected: eqPreset == name,
+                            selectedColor: accent.withValues(alpha: 0.25),
+                            onSelected: (_) => chooseEQPreset(name, refresh),
+                          ),
+                        ),
+                      ],
+                      ChoiceChip(
+                        label: const Text('Custom'),
+                        selected: eqPreset == 'Custom',
+                        selectedColor: accent.withValues(alpha: 0.25),
+                        onSelected: (_) => refresh(() => eqPreset = 'Custom'),
+                      ),
+                    ]),
+                  ),
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, limits) => Stack(children: [
+                        Positioned.fill(child: CustomPaint(
+                          painter: EqGridPainter(accent: accent),
+                        )),
+                        Row(crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (var i = 0; i < 10; i++)
+                              Expanded(child: Column(children: [
+                                Text(
+                                  '${eqGains[i] >= 0 ? '+' : ''}${eqGains[i].toStringAsFixed(1)}',
+                                  maxLines: 1,
+                                  style: TextStyle(fontSize: 9.2,
+                                    fontWeight: FontWeight.w600,
+                                    color: accent),
+                                ),
+                                Expanded(child: RotatedBox(
+                                  quarterTurns: 3,
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 3.5,
+                                      activeTrackColor: accent,
+                                      inactiveTrackColor: Colors.white24,
+                                      thumbColor: accent,
+                                      overlayColor: accent.withValues(alpha: 0.15),
+                                    ),
+                                    child: Slider(
+                                      min: -12, max: 12,
+                                      divisions: 48,
+                                      value: eqGains[i],
+                                      onChanged: (v) {
+                                        refresh(() {
+                                          eqGains[i] = v;
+                                          eqPreset = 'Custom';
+                                        });
+                                        scheduleEQUpdate();
+                                      },
+                                      onChangeEnd: (_) => applyNativeEQ(),
+                                    ),
+                                  ),
+                                )),
+                                const SizedBox(height: 4),
+                                FittedBox(child: Text(eqFrequencies[i],
+                                  style: const TextStyle(fontSize: 10.5,
+                                    color: Colors.white70))),
+                              ])),
+                          ]),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Align(alignment: Alignment.centerLeft,
+                    child: Text('Appearance', style: TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.white70))),
+                  const SizedBox(height: 7),
+                  SizedBox(height: 38,
+                    child: ListView(scrollDirection: Axis.horizontal, children: [
+                      for (final name in eqAccentColors.keys)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: Tooltip(
+                            message: name,
+                            child: InkWell(
+                              onTap: () {
+                                refresh(() => eqAccent = name);
+                                saveLibrary();
+                              },
+                              customBorder: const CircleBorder(),
+                              child: CircleAvatar(
+                                radius: 16,
+                                backgroundColor: eqAccentColors[name],
+                                child: eqAccent == name
+                                  ? const Icon(Icons.check, size: 18, color: Colors.black87)
+                                  : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ]),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          refresh(() {
+                            eqEnabled = false;
+                          });
+                          setState(() {});
+                          applyNativeEQ();
+                        },
+                        icon: const Icon(Icons.power_settings_new),
+                        label: const Text('Bypass'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => chooseEQPreset('Flat', refresh),
+                        icon: const Icon(Icons.restart_alt),
+                        label: const Text('Reset bands'),
+                      ),
+                    ]),
+                ]),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void showAudioSettings() {
     showModalBottomSheet<void>(context: context, isScrollControlled: true,
       builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) => SafeArea(
@@ -855,6 +1107,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
             color: waveformVisible ? Colors.tealAccent : Colors.white,
             icon: const Icon(Icons.waves)),
+          IconButton(tooltip: 'Equalizer', icon: const Icon(Icons.equalizer),
+            color: eqEnabled ? activeEqAccent : Colors.white,
+            onPressed: showEqualizer),
           IconButton(tooltip: 'Queue', icon: const Icon(Icons.queue_music), onPressed: showQueue),
           IconButton(tooltip: 'Import music', icon: const Icon(Icons.add_circle_outline), onPressed: import),
         ],
@@ -1020,4 +1275,28 @@ class LiveWaveformPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant LiveWaveformPainter old) =>
       old.isPlaying != isPlaying || old.samples != samples;
+}
+
+class EqGridPainter extends CustomPainter {
+  final Color accent;
+  const EqGridPainter({required this.accent});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final guide = Paint()
+      ..color = Colors.white.withValues(alpha: 0.09)
+      ..strokeWidth = 1;
+    for (var i = 1; i < 4; i++) {
+      final y = size.height * i / 4;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), guide);
+    }
+    final zero = Paint()
+      ..color = accent.withValues(alpha: 0.32)
+      ..strokeWidth = 1.2;
+    canvas.drawLine(Offset(0, size.height / 2),
+      Offset(size.width, size.height / 2), zero);
+  }
+
+  @override
+  bool shouldRepaint(covariant EqGridPainter old) => old.accent != accent;
 }
