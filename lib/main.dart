@@ -94,9 +94,11 @@ class _MusicPageState extends State<MusicPage> {
     final wasPlaying = player.playing;
     final position = player.position.inMilliseconds / 1000.0;
     try {
-      await nativeDsp.invokeMethod('playFile', {'path': path, 'position': position});
-      await updateNativePitchTempo();
+      // Pause AVPlayer first so it cannot compete with the native output graph.
       await player.pause();
+      await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchSemitones * 100 + pitchCents});
+      final started = await nativeDsp.invokeMethod<bool>('playFile', {'path': path, 'position': position});
+      if (started != true) throw PlatformException(code: 'NATIVE_AUDIO', message: 'Native audio did not confirm playback');
       nativePitchPreview = true;
       if (mounted) setState(() => error = null);
     } on PlatformException catch (e) {
@@ -113,6 +115,7 @@ class _MusicPageState extends State<MusicPage> {
   Future<void> stopNativePitchPreview() async {
     try { await nativeDsp.invokeMethod('stopFile'); } on PlatformException catch (_) {}
     nativePitchPreview = false;
+    await player.play();
     if (mounted) setState(() {});
   }
 
@@ -123,6 +126,8 @@ class _MusicPageState extends State<MusicPage> {
       await nativeDsp.invokeMethod('setTimePitch', {'tempo': playbackSpeed, 'cents': pitchSemitones * 100 + pitchCents});
     } on PlatformException catch (e) {
       if (mounted) setState(() => error = 'Native DSP: ${e.message}');
+    } on MissingPluginException {
+      if (mounted) setState(() => error = 'Native DSP bridge unavailable');
     }
   }
   double? scrubPosition;
