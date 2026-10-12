@@ -55,6 +55,11 @@ class MusicPage extends StatefulWidget {
 
 class _MusicPageState extends State<MusicPage> {
   final player = AudioPlayer();
+  ConcatenatingAudioSource? activeSource;
+
+  AudioSource sourceFor(String path) => AudioSource.uri(Uri.file(path), tag: MediaItem(
+    id: path, title: displayName(path), artist: 'Unknown Artist',
+  ));
   final files = <String>[];
   int repeat = 0;
   bool shuffle = false;
@@ -102,19 +107,21 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   Future<void> loadPlaylist({bool autoplay = false}) async {
-    if (files.isEmpty) return;
-    await player.setAudioSource(ConcatenatingAudioSource(children: [
-      for (final f in files)
-        AudioSource.uri(Uri.file(f), tag: MediaItem(
-          id: f,
-          title: Uri.file(f).pathSegments.last,
-          artist: 'Unknown Artist',
-        )),
-    ]));
-    await player.setShuffleModeEnabled(shuffle);
-    await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]);
-    await player.setSpeed(playbackSpeed);
-    if (autoplay) player.play();
+    if (activeSource != null || files.isEmpty) return;
+    final source = ConcatenatingAudioSource(children: [
+      for (final path in files) sourceFor(path),
+    ]);
+    activeSource = source;
+    try {
+      await player.setAudioSource(source);
+      await player.setShuffleModeEnabled(shuffle);
+      await player.setLoopMode([LoopMode.off, LoopMode.all, LoopMode.one][repeat]);
+      await player.setSpeed(playbackSpeed);
+      if (autoplay) player.play();
+    } catch (_) {
+      activeSource = null;
+      rethrow;
+    }
   }
 
   Future<void> restoreLibrary() async {
@@ -183,7 +190,13 @@ class _MusicPageState extends State<MusicPage> {
       }
       if (imported == 0) throw Exception('No accessible audio files returned');
       await saveLibrary();
-      await loadPlaylist();
+      if (activeSource == null) {
+        await loadPlaylist();
+      } else {
+        // Extend the existing audio sequence; never reset the playing track.
+        final newPaths = files.sublist(files.length - imported);
+        await activeSource!.addAll([for (final path in newPaths) sourceFor(path)]);
+      }
       if (mounted) setState(() => error = null);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -289,15 +302,20 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   Future<void> removeTrack(String path) async {
-    final wasPlaying = files.indexOf(path) == player.currentIndex;
+    final index = files.indexOf(path);
+    if (index < 0) return;
+    // Remove from the live audio sequence rather than replacing the player source.
+    if (activeSource != null) await activeSource!.removeAt(index);
     setState(() {
-      files.remove(path);
+      files.removeAt(index);
       favorites.remove(path);
       for (final songs in playlists.values) { songs.remove(path); }
     });
     await saveLibrary();
-    if (files.isEmpty) { await player.stop(); await player.setAudioSource(ConcatenatingAudioSource(children: [])); }
-    else { await loadPlaylist(); if (wasPlaying) await player.pause(); }
+    if (files.isEmpty) {
+      await player.stop();
+      activeSource = null;
+    }
   }
 
   void trackMenu(String path) {
