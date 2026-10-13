@@ -13,8 +13,6 @@ dependencies:
 flutter:
   uses-material-design: true
   fonts:
-    - family: Adventor
+    - family: Josefin
       fonts:
-        - asset: assets/fonts/texgyreadventor-regular.otf
-        - asset: assets/fonts/texgyreadventor-bold.otf
-          weight: 700
+        - asset: assets/fonts/JosefinSans.ttf

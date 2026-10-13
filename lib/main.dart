@@ -10,18 +10,61 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+/// Scroll long titles smoothly without changing button placement.
+class ScrollingTrackTitle extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  const ScrollingTrackTitle({super.key, required this.text, required this.style});
+  @override
+  State<ScrollingTrackTitle> createState() => _ScrollingTrackTitleState();
+}
+
+class _ScrollingTrackTitleState extends State<ScrollingTrackTitle> with SingleTickerProviderStateMixin {
+  late final AnimationController motion = AnimationController(vsync: this);
+  @override
+  void dispose() { motion.dispose(); super.dispose(); }
+  @override
+  void didUpdateWidget(covariant ScrollingTrackTitle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) { motion.stop(); motion.reset(); }
+  }
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, bounds) {
+    final style = widget.style;
+    final painter = TextPainter(text: TextSpan(text: widget.text, style: style),
+      textDirection: TextDirection.ltr, maxLines: 1)..layout();
+    final textWidth = painter.width;
+    if (textWidth <= bounds.maxWidth || !bounds.maxWidth.isFinite) {
+      motion.stop();
+      return Text(widget.text, maxLines: 1, style: style);
+    }
+    final distance = textWidth - bounds.maxWidth + 16;
+    final duration = Duration(milliseconds: (distance * 35).round().clamp(2500, 25000).toInt());
+    if (motion.duration != duration) {
+      motion.duration = duration;
+      motion.repeat(reverse: true);
+    } else if (!motion.isAnimating) {
+      motion.repeat(reverse: true);
+    }
+    return ClipRect(child: AnimatedBuilder(animation: motion, builder: (_, __) =>
+      Transform.translate(offset: Offset(-distance * motion.value, 0),
+        child: Align(alignment: Alignment.centerLeft,
+          child: SizedBox(width: textWidth + 16, child: Text(widget.text, maxLines: 1, softWrap: false, style: style))))));
+  });
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
-      fontFamily: 'Adventor',
+      fontFamily: 'Josefin',
       brightness: Brightness.dark,
-      scaffoldBackgroundColor: const Color(0xFF101218),
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF9BE9C6), brightness: Brightness.dark),
-      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF101218), foregroundColor: Colors.white),
+      scaffoldBackgroundColor: const Color(0xFF171717),
+      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE85E35), brightness: Brightness.dark),
+      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF4D653), foregroundColor: Color(0xFF161515)),
       inputDecorationTheme: InputDecorationTheme(
-        filled: true, fillColor: const Color(0xFF252A35),
+        filled: true, fillColor: const Color(0xFF302C2B),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       ),
     ),
@@ -54,13 +97,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     'V-shaped': [4, 3, 1, -1, -2, -1, 1, 3, 4, 3],
     'Soft': [1, 1, 0, 0, 0, -1, -2, -2, -2, -1],
   };
-  static const Color activeEqAccent = Color(0xFF9BE9C6);
+  static const Color activeEqAccent = Color(0xFFE85E35);
   Timer? eqDebounce;
   final favorites = <String>{};
   final playlists = <String, List<String>>{};
   String? activePlaylist;
   String? error;
   String listeningOutput = '';
+  int outputGeneration = 0;
   String listeningCodec = '';
   bool sourceLossless = false;
   int outputInfoTicks = 0;
@@ -137,10 +181,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> refreshOutputInfo() async {
+    final generation = ++outputGeneration;
     if (files.isEmpty) return;
     try {
       final info = await nativeDsp.invokeMapMethod<String, dynamic>('getOutputInfo');
-      if (info == null || !mounted) return;
+      if (info == null || !mounted || generation != outputGeneration) return;
       final device = info['output'] as String? ?? '';
       final codec = info['codec'] as String? ?? '';
       final lossless = info['lossless'] == true;
@@ -180,7 +225,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     final indexChanged = newIndex != null && newIndex >= 0 &&
         newIndex < files.length && newIndex != currentIndex;
     void apply() {
-      if (newIndex != null && newIndex >= -1 && newIndex < files.length) currentIndex = newIndex;
+      if (newIndex != null && newIndex >= -1 && newIndex < files.length) {
+        if (currentIndex != newIndex) { currentIndex = newIndex; refreshOutputInfo(); }
+      }
       if (state['playing'] is bool) isPlaying = state['playing'] as bool;
       if (state['position'] is num) positionSeconds = (state['position'] as num).toDouble();
       if (state['duration'] is num) durationSeconds = (state['duration'] as num).toDouble();
@@ -527,6 +574,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       if (mounted) setState(() {
         currentIndex = index; isPlaying = true; positionSeconds = 0; error = null;
       });
+      refreshOutputInfo();
       await setNativeTitle();
     } on PlatformException catch (e) {
       if (mounted) setState(() => error = 'Playback: ${e.message}');
@@ -572,6 +620,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     try {
       final next = await nativeDsp.invokeMethod<int>('skipFile', {'delta': delta});
       if (next != null && mounted) setState(() => currentIndex = next);
+      refreshOutputInfo();
       await setNativeTitle();
     } on PlatformException catch (e) {
       if (mounted) setState(() => error = 'Skip: ${e.message}');
@@ -1448,6 +1497,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       ..sort((a, b) {
         int comparison;
         switch (sortMode) {
+          case 'fileType':
+            comparison = files[a].split('.').last.toLowerCase().compareTo(files[b].split('.').last.toLowerCase());
+            if (comparison == 0) comparison = displayName(files[a]).toLowerCase().compareTo(displayName(files[b]).toLowerCase());
+            break;
           case 'dateAdded':
             comparison = (dateAdded[files[a]] ?? 0).compareTo(dateAdded[files[b]] ?? 0);
             break;
@@ -1520,6 +1573,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 ('alphabetical', 'Alphabetical order'),
                 ('dateAdded', 'Date added'),
                 ('length', 'Track length'),
+                ('fileType', 'File type'),
               ]) PopupMenuItem<String>(
                 value: item.$1,
                 child: Row(children: [
@@ -1556,9 +1610,19 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ]))
           : ListView.builder(itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];
-              return ListTile(
-                leading: const Icon(Icons.music_note, color: Colors.tealAccent),
-                title: Text(displayName(files[index]), maxLines: 1, overflow: TextOverflow.ellipsis),
+              final extension = files[index].split('.').last.toUpperCase();
+              final previousExtension = row > 0 ? files[matches[row - 1]].split('.').last.toUpperCase() : '';
+              final groupStart = sortMode == 'fileType' && extension != previousExtension;
+              return Column(mainAxisSize: MainAxisSize.min, children: [
+                if (groupStart) Container(width: double.infinity, padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
+                  color: const Color(0xFFE85E35), child: Text('$extension FILES',
+                    style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Colors.black))),
+                ListTile(
+                tileColor: index == currentIndex ? const Color(0x665A3A18) : null,
+                shape: const Border(left: BorderSide(color: Color(0xFF171717), width: 2)),
+                leading: Icon(index == currentIndex ? Icons.graphic_eq : Icons.music_note,
+                  color: index == currentIndex ? const Color(0xFFE85E35) : Colors.white70),
+                title: Text(displayName(files[index]), maxLines: 2, overflow: TextOverflow.fade),
                 subtitle: Text(
                   index == currentIndex ? 'Now playing'
                       : trackDurations.containsKey(files[index])
@@ -1571,7 +1635,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   await selectAndPlayTrack(index);
                   if (mounted) showPlayer();
                 },
-              );
+              ),
+              ]);
             })),
         if (currentIndex >= 0 && currentIndex < files.length) GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -1583,7 +1648,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             color: const Color(0xFF29483F),
             child: ListTile(
             leading: const Icon(Icons.graphic_eq, color: Colors.tealAccent),
-            title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+            title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
               style: const TextStyle(fontWeight: FontWeight.w600)),
             onTap: showPlayer,
             trailing: IconButton(
@@ -1606,7 +1671,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     final effectivePosition = draggingSeek && scrubPosition != null ? scrubPosition! : positionSeconds;
     final maximum = math.max(durationSeconds, 0.001);
     return Scaffold(
-      backgroundColor: const Color(0xFF101218),
+      backgroundColor: const Color(0xFF171717),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down),
@@ -1628,13 +1693,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           const Spacer(),
           Expanded(flex: 5, child: Container(
             decoration: BoxDecoration(borderRadius: BorderRadius.circular(24),
-              gradient: const LinearGradient(colors: [Color(0xFF295548), Color(0xFF181B2B)])),
-            child: const Center(child: Icon(Icons.music_note, size: 120, color: Color(0xFF9BE9C6))),
+              gradient: const LinearGradient(colors: [Color(0xFFE85E35), Color(0xFFF2CB47)])),
+            child: const Center(child: Icon(Icons.music_note, size: 120, color: Color(0xFF171717))),
           )),
           const SizedBox(height: 22),
           Row(children: [
-            Expanded(child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold))),
+            Expanded(child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFFF4D653)))),
             if (currentIndex >= 0 && currentIndex < files.length)
               IconButton(tooltip: 'Favorite',
                 onPressed: () => toggleFavorite(files[currentIndex]),
@@ -1656,12 +1720,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ) : const SizedBox(width: double.infinity, height: 0),
           ),
           const SizedBox(height: 12),
-          if (listeningOutput.isNotEmpty)
-            Padding(padding: const EdgeInsets.only(bottom: 5), child: Text(
-              [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
-                if (sourceLossless) 'Lossless source'].join('  ·  '),
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 10, color: Colors.white60))),
+          AnimatedSwitcher(duration: const Duration(milliseconds: 360),
+            transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+            child: listeningOutput.isEmpty ? const SizedBox(height: 12, key: ValueKey('empty-route')) :
+              Padding(key: ValueKey('$listeningOutput/$listeningCodec/$sourceLossless'),
+                padding: const EdgeInsets.only(bottom: 5), child: Text(
+                [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
+                  if (sourceLossless) 'Lossless source'].join('  ·  '),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 10, color: Color(0xFF332B23))))),
           Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
             onChangeStart: durationSeconds <= 0 ? null :
               (value) => setState(() { draggingSeek = true; scrubPosition = value; }),

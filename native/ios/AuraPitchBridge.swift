@@ -11,6 +11,7 @@ final class AuraPitchBridge {
     private var currentIndex = -1
     private var repeatMode = 0
     private var shuffle = false
+    private var shuffleBag: [Int] = []
     private var displayedTitle: String?
     private var displayedArtist: String?
     private var lastInfoUpdate = Date.distantPast
@@ -35,6 +36,7 @@ final class AuraPitchBridge {
                     }
                     let oldPath = self.currentIndex >= 0 && self.currentIndex < self.queue.count
                         ? self.queue[self.currentIndex] : nil
+                    if self.queue != paths { self.shuffleBag.removeAll() }
                     self.queue = paths
                     self.repeatMode = (args["repeat"] as? Int ?? self.repeatMode)
                     self.shuffle = (args["shuffle"] as? Bool ?? self.shuffle)
@@ -214,7 +216,13 @@ final class AuraPitchBridge {
         guard !queue.isEmpty else { return nil }
         if repeatMode == 2 && delta > 0 { return currentIndex }
         if shuffle && delta > 0 && queue.count > 1 {
-            return (currentIndex + Int.random(in: 1..<queue.count)) % queue.count
+            // Randomized deck: every track plays once before the deck refills.
+            // The current song cannot be selected again immediately.
+            shuffleBag.removeAll(where: { $0 == currentIndex || $0 >= queue.count })
+            if shuffleBag.isEmpty {
+                shuffleBag = Array(queue.indices).filter { $0 != currentIndex }.shuffled()
+            }
+            return shuffleBag.removeLast()
         }
         let proposed = currentIndex + delta
         if proposed >= 0 && proposed < queue.count { return proposed }
