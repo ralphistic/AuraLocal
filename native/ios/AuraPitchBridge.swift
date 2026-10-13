@@ -143,6 +143,17 @@ final class AuraPitchBridge {
                     let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
                     self.graph.setWaveformEnabled(enabled)
                     result(true)
+                case "embeddedArtwork":
+                    guard let path = (call.arguments as? [String: Any])?["path"] as? String else {
+                        throw self.argumentError("Missing artwork file path")
+                    }
+                    DispatchQueue.global(qos: .utility).async {
+                        let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+                        let art = asset.commonMetadata.first(where: {
+                            $0.commonKey == AVMetadataKey.commonKeyArtwork
+                        })?.dataValue
+                        DispatchQueue.main.async { result(art?.base64EncodedString()) }
+                    }
                 case "setTimePitch":
                     guard let args = call.arguments as? [String: Any],
                           let tempo = (args["tempo"] as? NSNumber)?.floatValue,

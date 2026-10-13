@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/cupertino.dart';
@@ -88,6 +89,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final files = <String>[];
   final originalNames = <String, String>{};
   final trackMetadata = <String, Map<String, String>>{};
+  final embeddedArt = <String, Uint8List?>{};
   final eqGains = List<double>.filled(10, 0);
   final customEqPresets = <String, List<double>>{};
   bool eqEnabled = false;
@@ -245,7 +247,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         newIndex < files.length && newIndex != currentIndex;
     void apply() {
       if (newIndex != null && newIndex >= -1 && newIndex < files.length) {
-        if (currentIndex != newIndex) { currentIndex = newIndex; refreshOutputInfo(); loadSongDSP(); }
+        if (currentIndex != newIndex) {
+          currentIndex = newIndex;
+          refreshOutputInfo();
+          loadSongDSP();
+          if (newIndex >= 0 && newIndex < files.length) probeEmbeddedArt(files[newIndex]);
+        }
       }
       if (state['playing'] is bool) isPlaying = state['playing'] as bool;
       if (state['position'] is num) positionSeconds = (state['position'] as num).toDouble();
@@ -530,6 +537,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         final migratedFavorites = favorites.map((path) =>
           migrated[path] ?? (path.startsWith('External/') ? (referenced[path] ?? '') : localFilePath(path))).where(files.contains).toSet();
         favorites..clear()..addAll(migratedFavorites);
+        // Keep unresolved external identities for later manual relinking.
+        for (final stored in (decoded is Map && decoded['favorites'] is List
+            ? (decoded['favorites'] as List).whereType<String>() : <String>[])) {
+          if (stored.startsWith('External/') && !migrated.containsKey(stored)) favorites.add(stored);
+        }
         final names = <String, String>{};
         originalNames.forEach((path, name) {
           final mapped = migrated[path] ?? (path.startsWith('External/') ? (referenced[path] ?? '') : localFilePath(path));
@@ -549,7 +561,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         });
         trackDurations..clear()..addAll(lengths);
         playlists.updateAll((name, tracks) =>
-          tracks.map((path) => migrated[path] ?? localFilePath(path)).toList());
+          tracks.map((path) => migrated[path] ??
+            (path.startsWith('External/') ? (referenced[path] ?? path) : localFilePath(path))).toList());
         for (final path in files) {
           dateAdded.putIfAbsent(path, () =>
             File(path).lastModifiedSync().millisecondsSinceEpoch);
@@ -566,7 +579,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             originalNames[path] = canonical;
           }
         }
-        for (final songs in playlists.values) { songs.removeWhere((path) => !files.contains(path)); }
+        // Unresolved external entries remain in playlists until the user
+        // grants access again; do not silently erase playlist membership.
+        for (final songs in playlists.values) {
+          songs.removeWhere((path) => !files.contains(path) && !path.startsWith('External/'));
+        }
       } else {
         await for (final entry in musicDir.list()) {
           if (entry is File && RegExp(r'\.(flac|mp3|m4a|wav|aac)$',
@@ -608,6 +625,53 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     }
   }
 
+  // A tiny library-only index survives reinstall when explicitly saved to Files.
+  // No audio is included; relink originals through Files after restoring it.
+  Future<void> exportLibraryIndex() async {
+    try {
+      await saveLibrary();
+      final manifest = await libraryManifest();
+      await FilePicker.platform.saveFile(
+        dialogTitle: 'Save AuraLocal library index (no audio copies)',
+        fileName: 'AuraLocal-Library-Index.json',
+        type: FileType.custom, allowedExtensions: ['json'],
+        bytes: Uint8List.fromList(await manifest.readAsBytes()),
+      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Library index saved to Files. Keep it outside the app.')));
+    } catch (e) { if (mounted) setState(() => error = 'Could not export index: $e'); }
+  }
+
+  Future<void> restoreLibraryIndex() async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom, allowedExtensions: ['json'], withData: true);
+      if (picked == null || picked.files.isEmpty) return;
+      final entry = picked.files.first;
+      final data = entry.bytes ?? (entry.path == null ? null : await File(entry.path!).readAsBytes());
+      if (data == null || data.length > 40000000) throw const FormatException('Invalid index');
+      final decoded = jsonDecode(utf8.decode(data));
+      if (decoded is! Map || decoded['files'] is! List) throw const FormatException('Invalid index');
+      final manifest = await libraryManifest();
+      await nativeDsp.invokeMethod('stopFile');
+      await manifest.writeAsBytes(data, flush: true);
+      // Reload and reconnect available bookmarks. Missing originals can be
+      // relinked with Link music from Files, without copying the audio.
+      files.clear();
+      favorites.clear();
+      playlists.clear();
+      originalNames.clear();
+      trackMetadata.clear();
+      songDSP.clear();
+      dateAdded.clear();
+      trackDurations.clear();
+      currentIndex = -1;
+      await restoreLibrary();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Index restored. Relink any missing files using + (no copies).')));
+    } catch (e) { if (mounted) setState(() => error = 'Could not restore index: $e'); }
+  }
+
   Future<void> importInPlace() async {
     try {
       final picked = await fileReferences.invokeListMethod<dynamic>('pickInPlace');
@@ -619,6 +683,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         if (!await File(path).exists() || files.contains(path)) continue;
         // Do not make a second audio copy; keep the Files provider's URL.
         files.add(path);
+        final identity = manifestTrackKey(path);
+        if (favorites.remove(identity)) favorites.add(path);
+        for (final tracks in playlists.values) {
+          for (var i = 0; i < tracks.length; i++) {
+            if (tracks[i] == identity) tracks[i] = path;
+          }
+        }
         originalNames[path] = (raw['name'] as String?) ?? path.split('/').last;
         dateAdded[path] = DateTime.now().millisecondsSinceEpoch;
         added++;
@@ -868,6 +939,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   String displayName(String path) {
+    final edited = trackMetadata[manifestTrackKey(path)]?['title'];
+    if (edited != null && edited.trim().isNotEmpty) return edited.trim();
     final raw = originalNames[path] ?? Uri.file(path).pathSegments.last;
     return raw.replaceFirst(RegExp(r'\.(flac|mp3|m4a|wav|aac)$', caseSensitive: false), '');
   }
@@ -1656,12 +1729,28 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     }
   }
 
+  Future<void> probeEmbeddedArt(String path) async {
+    if (embeddedArt.containsKey(path)) return;
+    embeddedArt[path] = null;
+    try {
+      final encoded = await nativeDsp.invokeMethod<String>('embeddedArtwork', {'path': path});
+      if (encoded != null && encoded.isNotEmpty && encoded.length < 24000000) {
+        embeddedArt[path] = base64Decode(encoded);
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
+  }
+
   Map<String, String> metadataFor(String path) =>
     trackMetadata[manifestTrackKey(path)] ?? const <String, String>{};
 
   Future<void> saveTrackMetadata(String path, Map<String, String> data) async {
     trackMetadata[manifestTrackKey(path)] = data;
     await saveLibrary();
+    if (currentIndex >= 0 && currentIndex < files.length && files[currentIndex] == path) {
+      await setNativeTitle();
+    }
+    if (sortMode == 'alphabetical') await syncQueue();
     if (mounted) setState(() {});
   }
 
@@ -1675,13 +1764,25 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           tooltip: 'Library backup and restore',
           icon: const Icon(Icons.more_vert),
           onSelected: (value) {
-            if (value == 'backup') {
+            if (value == 'indexExport') {
+              exportLibraryIndex();
+            } else if (value == 'indexRestore') {
+              restoreLibraryIndex();
+            } else if (value == 'backup') {
               exportLibraryBackup();
             } else if (value == 'restore') {
               restoreLibraryBackup();
             }
           },
           itemBuilder: (_) => [
+            const PopupMenuItem(value: 'indexExport',
+              child: ListTile(leading: Icon(Icons.save_alt),
+                title: Text('Export library index (no audio)'),
+                subtitle: Text('Save song list and settings to Files'))),
+            const PopupMenuItem(value: 'indexRestore',
+              child: ListTile(leading: Icon(Icons.folder_open),
+                title: Text('Restore library index'),
+                subtitle: Text('Relink originals after reinstall'))),
             const PopupMenuItem(value: 'backup',
               child: ListTile(leading: Icon(Icons.backup_outlined),
                 title: Text('Back up library'),
@@ -1869,7 +1970,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             final path = files[currentIndex];
             return SizedBox.square(dimension: side, child: ArtworkFlipCard(
               key: ValueKey(path), trackName: displayName(path),
-              metadata: metadataFor(path),
+              metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
               onSave: (data) => saveTrackMetadata(path, data)));
           }))),
           const SizedBox(height: 22),

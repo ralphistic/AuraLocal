@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 typedef MetadataSave = Future<void> Function(Map<String, String> fields);
 
@@ -10,7 +12,9 @@ class ArtworkFlipCard extends StatefulWidget {
   final String trackName;
   final Map<String, String> metadata;
   final MetadataSave onSave;
-  const ArtworkFlipCard({super.key, required this.trackName, required this.metadata, required this.onSave});
+  final Uint8List? embeddedArtwork;
+  const ArtworkFlipCard({super.key, required this.trackName, required this.metadata,
+    required this.onSave, this.embeddedArtwork});
   @override
   State<ArtworkFlipCard> createState() => _ArtworkFlipCardState();
 }
@@ -26,7 +30,12 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
     super.didUpdateWidget(oldWidget);
     if (oldWidget.trackName != widget.trackName) flip.reverse();
   }
-  void toggle() { if (flip.value > 0.5) { flip.reverse(); } else { flip.forward(); } }
+  void toggle() {
+    if (widget.embeddedArtwork != null ||
+        (widget.metadata['artworkUrl'] ?? '').isNotEmpty ||
+        (widget.metadata['artworkData'] ?? '').isNotEmpty) return;
+    if (flip.value > 0.5) { flip.reverse(); } else { flip.forward(); }
+  }
   @override
   Widget build(BuildContext context) => AspectRatio(aspectRatio: 1,
     child: AnimatedBuilder(animation: flip, builder: (context, _) {
@@ -56,12 +65,15 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
           )),
       );
     }));
-  }
   Widget _front() {
     final artwork = widget.metadata['artworkUrl'] ?? '';
+    final localArtwork = widget.metadata['artworkData'] ?? '';
     return Stack(fit: StackFit.expand, children: [
-      if (artwork.isNotEmpty) Image.network(artwork, fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _generic())
+      if (localArtwork.isNotEmpty) Image.memory(base64Decode(localArtwork), fit: BoxFit.cover)
+      else if (artwork.isNotEmpty) Image.network(artwork, fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => widget.embeddedArtwork == null
+          ? _generic() : Image.memory(widget.embeddedArtwork!, fit: BoxFit.cover))
+      else if (widget.embeddedArtwork != null) Image.memory(widget.embeddedArtwork!, fit: BoxFit.cover)
       else _generic(),
       const Positioned(right: 10, bottom: 10,
         child: Icon(Icons.flip_camera_android, color: Color(0xFF221A1B))),
@@ -70,13 +82,17 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
   Widget _generic() => const Center(child: Icon(Icons.music_note, size: 115, color: Color(0xFF221A1B)));
   Future<void> openEditor(BuildContext context, [Map<String, String>? suggestion]) async {
     final fields = {...widget.metadata, ...?suggestion};
-    const keys = ['title', 'artist', 'album', 'releaseDate', 'genre', 'trackNumber', 'artworkUrl'];
-    const labels = ['Song title', 'Artist', 'Album', 'Release date', 'Genre', 'Track number', 'Artwork URL'];
+    const keys = ['title', 'artist', 'album', 'releaseDate', 'genre',
+      'trackNumber', 'discNumber', 'composer', 'comments', 'artworkUrl'];
+    const labels = ['Song title', 'Artist', 'Album', 'Release date', 'Genre',
+      'Track number', 'Disc number', 'Composer', 'Comments', 'Artwork URL'];
     final controllers = {for (final key in keys)
       key: TextEditingController(text: fields[key] ?? (key == 'title' ? widget.trackName : ''))};
+    String localArtwork = fields['artworkData'] ?? '';
+    String artworkFeedback = '';
     try {
       await showModalBottomSheet<void>(context: context, isScrollControlled: true,
-        builder: (sheet) => Padding(
+        builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) => Padding(
           padding: EdgeInsets.fromLTRB(18, 18, 18, MediaQuery.viewInsetsOf(sheet).bottom + 18),
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('Track metadata', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
@@ -84,9 +100,30 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
               padding: const EdgeInsets.symmetric(vertical: 5),
               child: TextField(controller: controllers[keys[i]], decoration: InputDecoration(labelText: labels[i]))),
             const SizedBox(height: 12),
+            OutlinedButton.icon(icon: const Icon(Icons.image),
+              label: const Text('Choose high-resolution artwork from Files'),
+              onPressed: () async {
+                final chosen = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+                if (chosen == null || chosen.files.isEmpty) return;
+                final image = chosen.files.first.bytes ??
+                  (chosen.files.first.path == null ? null :
+                    await File(chosen.files.first.path!).readAsBytes());
+                if (image == null || image.length > 8000000) {
+                  refresh(() => artworkFeedback = 'Choose an image smaller than 8 MB.');
+                  return;
+                }
+                refresh(() {
+                  localArtwork = base64Encode(image);
+                  artworkFeedback = 'Artwork selected (original resolution preserved).';
+                });
+              }),
+            if (artworkFeedback.isNotEmpty) Text(artworkFeedback),
+            const SizedBox(height: 12),
             FilledButton(onPressed: () async {
               final data = {for (final key in keys) key: controllers[key]!.text.trim()};
+              if (localArtwork.isNotEmpty) data['artworkData'] = localArtwork;
               await widget.onSave(data);
+              if (mounted) flip.reverse();
               if (sheet.mounted) Navigator.pop(sheet);
             }, child: const Text('Save metadata')),
           ]))),
@@ -117,7 +154,8 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
                   final item = results[i];
                   return ListTile(
                     leading: item['artworkUrl']?.isNotEmpty == true
-                      ? Image.network(item['artworkUrl']!, width: 54, height: 54, fit: BoxFit.cover,
+                      ? Image.network(item['artworkUrl']!, width: 54, height: 54,
+                          cacheWidth: 160, cacheHeight: 160, fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => const Icon(Icons.album))
                       : const Icon(Icons.album),
                     title: Text(item['title'] ?? ''),
@@ -152,6 +190,34 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
             'artworkUrl': image,
           };
         }).toList();
+        if (candidates.value.isEmpty) {
+          // MusicBrainz is particularly useful for soundtracks and recordings
+          // not distributed through the commercial storefront catalogue.
+          final mbUri = Uri.https('musicbrainz.org', '/ws/2/recording/', {
+            'query': 'recording:$query', 'fmt': 'json', 'limit': '12',
+          });
+          final mbRequest = await client.getUrl(mbUri);
+          mbRequest.headers.set(HttpHeaders.userAgentHeader, 'AuraLocal/1.0 (metadata research)');
+          final mbResponse = await mbRequest.close().timeout(const Duration(seconds: 12));
+          if (mbResponse.statusCode == 200) {
+            final mb = jsonDecode(await utf8.decoder.bind(mbResponse).join()) as Map;
+            candidates.value = (mb['recordings'] as List? ?? []).whereType<Map>().map((record) {
+              final credits = record['artist-credit'] as List? ?? [];
+              final artist = credits.whereType<Map>().map((c) =>
+                (c['artist'] is Map ? c['artist']['name'] : c['name'])?.toString() ?? '').join(', ');
+              final releases = (record['releases'] as List? ?? []).whereType<Map>().toList();
+              final release = releases.isEmpty ? <String, dynamic>{} : releases.first;
+              return <String, String>{
+                'title': (record['title'] ?? '').toString(), 'artist': artist,
+                'album': (release['title'] ?? '').toString(),
+                'releaseDate': (release['date'] ?? '').toString(),
+                'genre': '', 'trackNumber': '',
+                'artworkUrl': release['id'] == null ? '' :
+                  'https://coverartarchive.org/release/${release['id']}/front-1200',
+              };
+            }).toList();
+          }
+        }
         if (candidates.value.isEmpty) error.value = 'No matches found. Try manual entry.';
       } finally { client.close(force: true); }
     } catch (e) { error.value = 'Could not search online: $e'; }

@@ -28,10 +28,15 @@ final class AuraFileReferences: NSObject, UIDocumentPickerDelegate {
             result(FlutterError(code: "BUSY", message: "A picker is already open", details: nil))
             return
         }
-        let types: [UTType] = ["flac", "mp3", "wav", "m4a", "aac"]
-            .compactMap { UTType(filenameExtension: $0) }
-        let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: types.isEmpty ? [.audio] : types, asCopy: false)
+        let picker: UIDocumentPickerViewController
+        if #available(iOS 14.0, *) {
+            let types: [UTType] = ["flac", "mp3", "wav", "m4a", "aac"]
+                .compactMap { UTType(filenameExtension: $0) }
+            picker = UIDocumentPickerViewController(
+                forOpeningContentTypes: types.isEmpty ? [.audio] : types, asCopy: false)
+        } else {
+            picker = UIDocumentPickerViewController(documentTypes: ["public.audio"], in: .open)
+        }
         picker.allowsMultipleSelection = true
         picker.delegate = self
         guard let root = UIApplication.shared.connectedScenes
