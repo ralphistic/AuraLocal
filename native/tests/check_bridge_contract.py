@@ -58,7 +58,7 @@ require(dart.count("Slider(value: pitchCents") == 0 and
         "Combined pitch slider supports drag and double-tap reset")
 
 require("timePitch.overlap = 8" in graph and
-        "timePitch.rate = tempo" in graph and "timePitch.pitch = cents" in graph and
+        "timePitch.rate = tempo" in graph and "timePitch.pitch = cents + tapeCents" in graph and
         "timePitch.reset()" not in graph and
         "source.stop()" not in graph.split("func setTimePitch(")[1],
         "Pitch and tempo update in-place without stopping or resetting the audio graph")

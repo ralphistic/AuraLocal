@@ -128,6 +128,37 @@ final class AuraPitchBridge {
                         presenter.present(picker, animated: true)
                         result(true)
                     }
+                case "probeFileDetails":
+                    guard let args = call.arguments as? [String: Any],
+                          let path = args["path"] as? String else {
+                        throw self.argumentError("Missing file path")
+                    }
+                    DispatchQueue.global(qos: .utility).async {
+                        let url = URL(fileURLWithPath: path)
+                        var details: [String: String] = [:]
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                           let bytes = attrs[.size] as? NSNumber {
+                            details["File size"] = ByteCountFormatter.string(fromByteCount: bytes.int64Value, countStyle: .file)
+                            details["Bitrate (file average)"] = "Unavailable"
+                        }
+                        if let file = try? AVAudioFile(forReading: url) {
+                            let format = file.fileFormat
+                            let sampleRate = format.sampleRate
+                            details["Sample rate"] = String(format: "%.0f Hz", sampleRate)
+                            details["Channels"] = String(format.channelCount)
+                            details["Bit depth"] = format.commonFormat == .pcmFormatInt16 ? "16-bit PCM" :
+                                format.commonFormat == .pcmFormatInt32 ? "32-bit PCM" :
+                                format.commonFormat == .pcmFormatFloat32 ? "32-bit float" :
+                                format.commonFormat == .pcmFormatFloat64 ? "64-bit float" : "Not reported"
+                            details["Duration"] = String(format: "%.2f s", Double(file.length) / max(1, sampleRate))
+                            if let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber,
+                               file.length > 0, sampleRate > 0 {
+                                let kbps = Double(size.int64Value) * 8 * sampleRate / Double(file.length) / 1000
+                                details["Bitrate (file average)"] = String(format: "%.0f kbps", kbps)
+                            }
+                        }
+                        DispatchQueue.main.async { result(details) }
+                    }
                 case "probeDurations":
                     guard let args = call.arguments as? [String: Any],
                           let paths = args["paths"] as? [String] else {
@@ -162,7 +193,8 @@ final class AuraPitchBridge {
                           let cents = (args["cents"] as? NSNumber)?.floatValue else {
                         throw self.argumentError("Missing tempo or cents")
                     }
-                    try self.graph.setTimePitch(tempo: tempo, semitones: cents / 100)
+                    try self.graph.setTimePitch(tempo: tempo, semitones: cents / 100,
+                                                linked: args["linked"] as? Bool ?? false)
                     // Avoid hammering lock-screen metadata during fast drags.
                     self.updateNowPlaying(force: false)
                     result(true)

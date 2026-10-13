@@ -23,6 +23,7 @@ final class AuraDspGraph {
     private var needsInterruptionReprime = false
     private var appliedRate: Float = 1
     private var appliedPitchCents: Float = 0
+    private var linkedPitchTempo = false
     var onFinished: (() -> Void)?
     private let waveLock = NSLock()
     private let analysisQueue = DispatchQueue(label: "auralocal.spectrum", qos: .userInitiated)
@@ -133,9 +134,9 @@ final class AuraDspGraph {
             let db = 20.0 * log10(max(0.000001, Double(weighted)))
             // Wider visible transients: low-level detail remains visible,
             // while drum attacks move the contour distinctly.
-            let normalized = Float(min(1, max(0, (db + 62.0) / 54.0)))
+            let normalized = Float(min(1, max(0, (db + 72.0) / 55.0)))
             // Exaggerate peaks and preserve quiet valleys; fast attacks, fast decay.
-            target[band] = pow(normalized, 1.45)
+            target[band] = pow(normalized, 0.94)
         }
         waveLock.lock()
         if waveEnabled {
@@ -162,7 +163,13 @@ final class AuraDspGraph {
         }
         generation += 1
         let token = generation
+        // Silence any queued samples of the outgoing track before scheduling
+        // the replacement; avoid a split-second of the prior song.
+        source.volume = 0
         source.stop()
+        waveLock.lock()
+        waveValues = Array(repeating: 0, count: 48)
+        waveLock.unlock()
         activeFile = file
         sampleRate = rate
         startFrame = start
@@ -183,7 +190,15 @@ final class AuraDspGraph {
             }
         }
         if !engine.isRunning { try engine.start() }
+        // Short attack ramp reduces boundary clicks without altering the file.
+        source.volume = 0
         source.play()
+        for step in 1...8 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.004) { [weak self] in
+                guard let self = self, self.generation == token else { return }
+                self.source.volume = Float(step) / 8.0
+            }
+        }
     }
     func pausePlayback() {
         // iOS can already have stopped the underlying player by the time its
@@ -269,7 +284,7 @@ final class AuraDspGraph {
         equalizer.globalGain = enabled ? -min(boost, 6) : 0
         equalizer.bypass = !enabled
     }
-    func setTimePitch(tempo: Float, semitones: Float) throws {
+    func setTimePitch(tempo: Float, semitones: Float, linked: Bool = false) throws {
         guard tempo.isFinite, semitones.isFinite, (0.5...2).contains(tempo),
               (-12...12).contains(semitones) else {
             throw NSError(domain: "AuraDSP", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid tempo or pitch"])
@@ -277,20 +292,24 @@ final class AuraDspGraph {
         try configure()
         let cents = semitones * 100
         if abs(tempo - appliedRate) < 0.0001 &&
-           abs(cents - appliedPitchCents) < 0.01 { return }
+           abs(cents - appliedPitchCents) < 0.01 && linked == linkedPitchTempo { return }
         // AVAudioUnitTimePitch supports live parameter updates. Never stop the
         // player node, pause the engine, or reset the time-stretcher on drag:
         // doing so interrupts its scheduled buffers and causes audible clicks.
         let playbackPosition = positionSeconds
         let neutral = abs(tempo - 1) < 0.0001 && abs(cents) < 0.01
         if !neutral { timePitch.bypass = false }
+        // Linked mode requests a speed-relative pitch offset. AVAudioUnitTimePitch
+        // remains the sole processor, so the precise musical result needs device testing.
+        let tapeCents: Float = linked ? 1200 * log2(tempo) : 0
         timePitch.rate = tempo
-        timePitch.pitch = cents
+        timePitch.pitch = cents + tapeCents
         // When tempo and pitch return to normal, bypass the stretcher so its
         // previous processed grains cannot continue colouring neutral audio.
         if neutral { timePitch.bypass = true }
         appliedRate = tempo
         appliedPitchCents = cents
+        linkedPitchTempo = linked
         anchorSeconds = playbackPosition
         anchorUptime = ProcessInfo.processInfo.systemUptime
     }

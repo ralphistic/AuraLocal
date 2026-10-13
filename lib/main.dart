@@ -137,6 +137,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   List<String> queuedPaths = [];
   final songDSP = <String, List<double>>{};
   bool globalDSP = false;
+  bool linkedPitchTempo = false;
+  Timer? seekHoldTimer;
+  int seekHoldTicks = 0;
   final searchController = TextEditingController();
   int dspRequestGeneration = 0;
   bool isPlaying = false;
@@ -194,7 +197,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
         final before = previous[i];
-        return before + (target - before) * (target > before ? 0.38 : 0.22);
+        return before + (target - before) * (target > before ? 0.72 : 0.36);
       });
       waveformLevels.value = next;
     });
@@ -205,6 +208,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   @override
   void dispose() {
     pollTimer?.cancel();
+    seekHoldTimer?.cancel();
     dspWheelDebounce?.cancel();
     eqDebounce?.cancel();
     spectrumTicker?.dispose();
@@ -307,7 +311,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       'playlists': playlists.map((name, tracks) =>
           MapEntry(name, tracks.map(manifestTrackKey).toList())),
       'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed,
-      'globalDSP': globalDSP, 'songDSP': songDSP,
+      'globalDSP': globalDSP, 'songDSP': songDSP, 'linkedPitchTempo': linkedPitchTempo,
       'trackMetadata': trackMetadata,
       'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones,
       'originalNames': originalNames.map((path, name) =>
@@ -400,7 +404,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     final cents = (pitchSemitones * 100 + pitchCents).clamp(-1200.0, 1200.0).toDouble();
     saveSongDSP();
     try {
-      await nativeDsp.invokeMethod('setTimePitch', {'tempo': tempo, 'cents': cents});
+      await nativeDsp.invokeMethod('setTimePitch', {'tempo': tempo, 'cents': cents, 'linked': linkedPitchTempo});
       if (request == dspRequestGeneration) {
         dspSaveDebounce = Timer(const Duration(milliseconds: 650), saveLibrary);
       }
@@ -482,6 +486,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             });
           }
           globalDSP = decoded['globalDSP'] == true;
+          linkedPitchTempo = decoded['linkedPitchTempo'] == true;
           if (decoded['songDSP'] is Map) {
             (decoded['songDSP'] as Map).forEach((key, values) {
               if (key is String && values is List && values.length == 3 && values.every((v) => v is num)) {
@@ -904,6 +909,23 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> seekSeconds(int seconds) async => seekTo(positionSeconds + seconds);
 
+  void beginHoldSeek(int direction) {
+    seekHoldTimer?.cancel();
+    seekHoldTicks = 0;
+    seekHoldTimer = Timer.periodic(const Duration(milliseconds: 180), (_) {
+      if (currentIndex < 0 || durationSeconds <= 0) return;
+      seekHoldTicks++;
+      final step = seekHoldTicks < 7 ? 1 : seekHoldTicks < 18 ? 3 : 6;
+      seekSeconds(direction * step);
+    });
+  }
+
+  void endHoldSeek() {
+    seekHoldTimer?.cancel();
+    seekHoldTimer = null;
+    seekHoldTicks = 0;
+  }
+
   Future<void> toggleWaveform() async {
     final enabled = !waveformVisible;
     await nativeDsp.invokeMethod('setWaveformEnabled', {'enabled': enabled});
@@ -1021,7 +1043,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const ListTile(title: Text('Add to playlist')),
         for (final name in playlists.keys)
-          ListTile(leading: const Icon(Icons.playlist_add), title: Text(name),
+          ListTile(leading: const Icon(Icons.playlist_add_rounded), title: Text(name),
             onTap: () => Navigator.pop(context, name)),
       ])),
     );
@@ -1057,7 +1079,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ListTile(leading: const Icon(Icons.edit), title: const Text('Rename playlist'), onTap: () {
           Navigator.pop(sheet); renamePlaylist(name);
         }),
-        ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Delete playlist'), onTap: () async {
+        ListTile(leading: const Icon(Icons.delete_outline_rounded), title: const Text('Delete playlist'), onTap: () async {
           Navigator.pop(sheet);
           setState(() { playlists.remove(name); if (activePlaylist == name) activePlaylist = null; });
           await saveLibrary();
@@ -1068,7 +1090,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   void trackMenu(String path) {
     showModalBottomSheet<void>(context: context, builder: (sheet) => SafeArea(child:
       Column(mainAxisSize: MainAxisSize.min, children: [
-        ListTile(leading: const Icon(Icons.edit_note), title: const Text('Edit metadata'),
+        ListTile(leading: const Icon(Icons.edit_note_rounded), title: const Text('Edit metadata'),
           onTap: () {
             Navigator.pop(sheet);
             showModalBottomSheet<void>(context: context, isScrollControlled: true,
@@ -1081,9 +1103,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   const Text('Tap artwork to add or search metadata.'),
                 ]))));
           }),
-        ListTile(leading: const Icon(Icons.playlist_add), title: const Text('Add to playlist'),
+        ListTile(leading: const Icon(Icons.playlist_add_rounded), title: const Text('Add to playlist'),
           onTap: () { Navigator.pop(sheet); addToPlaylist(path); }),
-        ListTile(leading: Icon(favorites.contains(path) ? Icons.favorite : Icons.favorite_border),
+        ListTile(leading: Icon(favorites.contains(path) ? Icons.favorite_rounded : Icons.favorite_border_rounded),
           title: Text(favorites.contains(path) ? 'Remove from favorites' : 'Add to favorites'),
           onTap: () { Navigator.pop(sheet); toggleFavorite(path); }),
       ])));
@@ -1113,7 +1135,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             if (index < 0) return const SizedBox.shrink();
             return ListTile(
               key: ValueKey(queuedPaths[position]),
-              leading: Icon(index == currentIndex ? Icons.graphic_eq : Icons.music_note),
+              leading: Icon(index == currentIndex ? Icons.graphic_eq_rounded : Icons.music_note_rounded),
               title: Text(displayName(files[index]), maxLines: 2, overflow: TextOverflow.fade,
                   style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.5)),
               subtitle: index == currentIndex ? const Text('Now playing') : null,
@@ -1129,7 +1151,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 340,
         child: Column(children: [
           Row(children: [
-            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
+            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close_rounded)),
             const Expanded(child: Text('Adjust Pitch', textAlign: TextAlign.center,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
             const SizedBox(width: 48),
@@ -1169,7 +1191,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 330,
         child: Column(children: [
           Row(children: [
-            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close)),
+            IconButton(onPressed: () => Navigator.pop(sheet), icon: const Icon(Icons.close_rounded)),
             const Expanded(child: Text('Adjust Tempo', textAlign: TextAlign.center,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
             const SizedBox(width: 48),
@@ -1331,7 +1353,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
                 child: Column(children: [
                   Row(children: [
-                    const Icon(Icons.equalizer, color: accent, size: 27),
+                    const Icon(Icons.equalizer_rounded, color: accent, size: 27),
                     const SizedBox(width: 12),
                     const Expanded(child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1369,7 +1391,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   if (customEqPresets.containsKey(eqPreset))
                     Align(alignment: Alignment.centerRight,
                       child: TextButton.icon(onPressed: () => deleteCustomEQPreset(eqPreset, refresh),
-                        icon: const Icon(Icons.delete_outline), label: const Text('Delete preset'))),
+                        icon: const Icon(Icons.delete_outline_rounded), label: const Text('Delete preset'))),
                   const SizedBox(height: 6),
                   Expanded(
                     child: Stack(children: [
@@ -1497,7 +1519,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ),
             TextButton.icon(
               onPressed: () => showPitchWheel(refresh),
-              icon: const Icon(Icons.tune, size: 18),
+              icon: const Icon(Icons.tune_rounded, size: 18),
               label: const Text('Fine tune: semitones / cents'),
             ),
             TextButton(onPressed: () => showTempoWheel(refresh),
@@ -1524,6 +1546,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
                 onChanged: (value) { refresh(() => playbackSpeed = value); setState(() {}); scheduleNativePitchTempoUpdate(); },
                 onChangeEnd: (_) => updateNativePitchTempo())),
+            SwitchListTile.adaptive(title: const Text('Link pitch to tempo'),
+              subtitle: const Text('Tape-speed behavior: speed and pitch move together'),
+              value: linkedPitchTempo,
+              onChanged: (enabled) { refresh(() => linkedPitchTempo = enabled); updateNativePitchTempo(); }),
             SwitchListTile.adaptive(title: const Text('Use global pitch and tempo'), value: globalDSP,
               onChanged: (enabled) async { refresh(() => globalDSP = enabled); await loadSongDSP(); await saveLibrary(); }),
             TextButton(onPressed: () async {
@@ -1783,18 +1809,32 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Map<String, String> metadataFor(String path) =>
     trackMetadata[manifestTrackKey(path)] ?? const <String, String>{};
 
-  Future<void> showOriginalFileLocation(String path) async {
-    if (!mounted) return;
-    try {
-      final opened = await fileReferences.invokeMethod<bool>('openOriginalLocation', path) ?? false;
-      if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Files cannot show this location directly. Open the original file in Files to locate it.')));
-      }
-    } on PlatformException catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(error.message ?? 'Original file is unavailable. Relink it from Files.')));
+  Future<void> showTrackDetails(String path) async {
+    Map<dynamic, dynamic>? probe;
+    try { probe = await nativeDsp.invokeMapMethod<dynamic, dynamic>('probeFileDetails', {'path': path}); }
+    on PlatformException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Cannot inspect this file')));
+      return;
     }
+    if (!mounted) return;
+    final details = <String, String>{
+      'Filename': originalNames[path] ?? path.split('/').last,
+      'Format': path.split('.').last.toUpperCase(),
+      ...?probe?.map((k, v) => MapEntry(k.toString(), v.toString())),
+      'Duration': clock(trackDurations[path] ??
+          (path == (currentIndex >= 0 && currentIndex < files.length ? files[currentIndex] : '')
+              ? durationSeconds : 0)),
+      for (final entry in metadataFor(path).entries) entry.key: entry.value,
+    };
+    await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      builder: (sheet) => SafeArea(child: Padding(padding: const EdgeInsets.all(18),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Technical file details', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 14),
+          ConstrainedBox(constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.60),
+            child: ListView(shrinkWrap: true, children: [for (final entry in details.entries)
+              ListTile(dense: true, title: Text(entry.key), subtitle: SelectableText(entry.value))])),
+        ]))));
   }
 
   Future<void> saveTrackMetadata(String path, Map<String, String> data) async {
@@ -1811,11 +1851,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     final matches = orderedTrackIndices();
     return Scaffold(
       appBar: AppBar(title: const Text('Your Library'), actions: [
-        IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add), onPressed: createPlaylist),
-        IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add), onPressed: importInPlace),
+        IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded), onPressed: createPlaylist),
+        IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add_rounded), onPressed: importInPlace),
         PopupMenuButton<String>(
           tooltip: 'Library backup and restore',
-          icon: const Icon(Icons.more_vert),
+          icon: const Icon(Icons.more_vert_rounded),
           onSelected: (value) {
             if (value == 'linkImport') {
               importInPlace();
@@ -1874,11 +1914,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           textAlignVertical: TextAlignVertical.center,
           controller: searchController,
           onChanged: (value) { setState(() => query = value); syncQueue(); },
-          decoration: InputDecoration(hintText: 'Search songs', prefixIcon: const Icon(Icons.search),
+          decoration: InputDecoration(hintText: 'Search songs', prefixIcon: const Icon(Icons.search_rounded),
             border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(80)), borderSide: BorderSide.none),
             isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
             prefixIconConstraints: const BoxConstraints(minWidth: 38, minHeight: 32),
-            suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close),
+            suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
         ))),
         // Compact library navigation: one menu instead of stacked chip rows.
@@ -1902,7 +1942,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Text(activePlaylist ?? (favoritesOnly ? 'Favorites' : 'All songs'),
                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                const SizedBox(width: 3), const Icon(Icons.keyboard_arrow_down, size: 18),
+                const SizedBox(width: 3), const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
               ])),
           ),
           if (activePlaylist != null) IconButton(tooltip: 'Playlist options',
@@ -1947,7 +1987,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ? Center(child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                FilledButton.icon(onPressed: importInPlace, icon: const Icon(Icons.add),
+                FilledButton.icon(onPressed: importInPlace, icon: const Icon(Icons.add_rounded),
                   label: const Text('Link music from Files (no copies)')),
                 TextButton(onPressed: import, child: const Text('Copy music into app instead')),
                 const SizedBox(height: 14),
@@ -1973,7 +2013,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 ListTile(
                 tileColor: index == currentIndex ? const Color(0x665A3A18) : null,
                 shape: const Border(left: BorderSide(color: Color(0xFF221A1B), width: 2)),
-                leading: Icon(index == currentIndex ? Icons.graphic_eq : Icons.music_note,
+                leading: Icon(index == currentIndex ? Icons.graphic_eq_rounded : Icons.music_note_rounded,
                   color: index == currentIndex ? const Color(0xFFF08078) : Colors.white70),
                 title: Text(displayName(files[index]), maxLines: 2, overflow: TextOverflow.fade,
                   style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.5)),
@@ -1983,9 +2023,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                         ? clock(trackDurations[files[index]]!)
                         : 'Local audio',
                   style: const TextStyle(color: Colors.white70)),
-                trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert),
+                trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert_rounded),
                   onPressed: () => trackMenu(files[index])),
-                onLongPress: () => showOriginalFileLocation(files[index]),
+                onLongPress: () => showTrackDetails(files[index]),
                 onTap: () async {
                   await selectAndPlayTrack(index);
                   if (mounted) showPlayer();
@@ -2002,12 +2042,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             duration: const Duration(milliseconds: 240),
             color: const Color(0xFF5D3031),
             child: ListTile(
-            leading: const Icon(Icons.graphic_eq, color: Color(0xFFFFB8A5)),
+            leading: const Icon(Icons.graphic_eq_rounded, color: Color(0xFFFFB8A5)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
             onTap: showPlayer,
             trailing: IconButton(
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 180),
-                child: Icon(isPlaying ? Icons.pause : Icons.play_arrow,
+                child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                   key: ValueKey(isPlaying))),
               onPressed: togglePlayback,
             ),
@@ -2029,18 +2069,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       appBar: AppBar(
         backgroundColor: const Color(0xFF221A1B),
         foregroundColor: const Color(0xFFFFB8A5),
-        leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down),
+        leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
         title: const Text('Now Playing'),
         actions: [
           IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
             color: waveformVisible ? const Color(0xFFFFB8A5) : Colors.white,
-            icon: const Icon(Icons.waves)),
-          IconButton(tooltip: 'Equalizer', icon: const Icon(Icons.equalizer),
+            icon: const Icon(Icons.waves_rounded)),
+          IconButton(tooltip: 'Equalizer', icon: const Icon(Icons.equalizer_rounded),
             color: eqEnabled ? activeEqAccent : Colors.white,
             onPressed: showEqualizer),
-          IconButton(tooltip: 'Queue', icon: const Icon(Icons.queue_music), onPressed: showQueue),
-          IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline), onPressed: importInPlace),
+          IconButton(tooltip: 'Queue', icon: const Icon(Icons.queue_music_rounded), onPressed: showQueue),
+          IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline_rounded), onPressed: importInPlace),
         ],
       ),
       body: SafeArea(child: LayoutBuilder(builder: (context, viewport) =>
@@ -2055,7 +2095,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
-                color: Color(0xFFF08078), child: Icon(Icons.music_note, size: 100)));
+                color: Color(0xFFF08078), child: Icon(Icons.music_note_rounded, size: 100)));
             }
             final path = files[currentIndex];
             return SizedBox.square(dimension: side, child: ArtworkFlipCard(
@@ -2067,9 +2107,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           Row(children: [
             Expanded(child: SizedBox(height: 38, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFFFFB8A5))))),
             if (currentIndex >= 0 && currentIndex < files.length)
+              IconButton(tooltip: 'Technical metadata', icon: const Icon(Icons.info_outline_rounded),
+                onPressed: () => showTrackDetails(files[currentIndex])),
+            if (currentIndex >= 0 && currentIndex < files.length)
               IconButton(tooltip: 'Favorite',
                 onPressed: () => toggleFavorite(files[currentIndex]),
-                icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite : Icons.favorite_border,
+                icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   color: const Color(0xFFFFB8A5))),
           ]),
           AnimatedSize(duration: const Duration(milliseconds: 280), curve: Curves.easeInOutCubic,
@@ -2096,7 +2139,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   if (sourceLossless) 'Lossless source'].join('  •  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 10, color: Color(0xFFFFB8A5))))),
-          Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
             onChangeStart: durationSeconds <= 0 ? null :
               (value) => setState(() { draggingSeek = true; scrubPosition = value; }),
             onChanged: durationSeconds <= 0 ? null :
@@ -2104,33 +2147,33 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             onChangeEnd: durationSeconds <= 0 ? null : (value) async {
               await seekTo(value);
               if (mounted) setState(() { draggingSeek = false; scrubPosition = null; });
-            }),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            })),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(clock(effectivePosition), style: const TextStyle(color: Colors.white70)),
             Text(clock(durationSeconds), style: const TextStyle(color: Colors.white70)),
-          ]),
+          ])),
           const SizedBox(height: 10),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             IconButton(tooltip: 'Shuffle', color: shuffle ? const Color(0xFFFFB8A5) : Colors.white,
               onPressed: () async {
                 setState(() => shuffle = !shuffle);
                 await syncQueue(); await saveLibrary();
-              }, icon: const Icon(Icons.shuffle)),
+              }, icon: const Icon(Icons.shuffle_rounded)),
             IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1),
-              icon: const Icon(Icons.skip_previous), iconSize: 36),
+              icon: const Icon(Icons.skip_previous_rounded), iconSize: 36),
             IconButton.filled(onPressed: files.isEmpty ? import : togglePlayback,
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 160),
                 transitionBuilder: (child, animation) =>
                   ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
-                child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, key: ValueKey(isPlaying), size: 38))),
+                child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, key: ValueKey(isPlaying), size: 38))),
             IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1),
-              icon: const Icon(Icons.skip_next), iconSize: 36),
+              icon: const Icon(Icons.skip_next_rounded), iconSize: 36),
             Column(mainAxisSize: MainAxisSize.min, children: [
               IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : const Color(0xFFFFB8A5),
                 onPressed: () async {
                   setState(() => repeat = (repeat + 1) % 3);
                   await syncQueue(); await saveLibrary();
-                }, icon: Icon(repeat == 2 ? Icons.repeat_one : Icons.repeat)),
+                }, icon: Icon(repeat == 2 ? Icons.repeat_one_rounded : Icons.repeat_rounded)),
               Text(['OFF', 'ALL', 'ONE'][repeat],
                 style: const TextStyle(fontSize: 10, color: Colors.white)),
             ]),
@@ -2138,23 +2181,25 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             IconButton(tooltip: 'Back 10 seconds', iconSize: 32,
               onPressed: currentIndex < 0 ? null : () => seekSeconds(-10),
-              icon: const Icon(Icons.replay_10)),
+              icon: const Icon(Icons.replay_10_rounded)),
             const SizedBox(width: 16),
-            IconButton(tooltip: 'Forward 10 seconds', iconSize: 32,
-              onPressed: currentIndex < 0 ? null : () => seekSeconds(10),
-              icon: const Icon(Icons.forward_10)),
+            GestureDetector(onLongPressStart: currentIndex < 0 ? null : (_) => beginHoldSeek(1),
+              onLongPressEnd: (_) => endHoldSeek(), onLongPressCancel: endHoldSeek,
+              child: IconButton(tooltip: 'Forward 10 seconds; hold to fast-forward', iconSize: 32,
+                onPressed: currentIndex < 0 ? null : () => seekSeconds(10),
+                icon: const Icon(Icons.forward_10_rounded))),
           ]),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music),
+            TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music_rounded),
               label: const Text('Library')),
-            TextButton.icon(onPressed: showQueue, icon: const Icon(Icons.queue_music),
+            TextButton.icon(onPressed: showQueue, icon: const Icon(Icons.queue_music_rounded),
               label: const Text('Queue')),
             if (currentIndex >= 0 && currentIndex < files.length)
-              IconButton(tooltip: 'Add to playlist', icon: const Icon(Icons.playlist_add),
+              IconButton(tooltip: 'Add to playlist', icon: const Icon(Icons.playlist_add_rounded),
                 onPressed: () => addToPlaylist(files[currentIndex])),
           ]),
           const SizedBox(height: 4),
-          TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune),
+          TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune_rounded),
             label: const Text('Pitch and tempo')),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
@@ -2207,7 +2252,7 @@ class LiveWaveformPainter extends CustomPainter {
         Offset(
           size.width * i / (samples.length - 1),
           baseline + math.sin(i * math.pi * 0.58) *
-              math.pow(samples[i].clamp(0.0, 1.0), 0.65).toDouble() * span,
+              math.pow(samples[i].clamp(0.0, 1.0), 0.40).toDouble() * span,
         ),
     ];
     final curve = Path()..moveTo(points.first.dx, points.first.dy);
