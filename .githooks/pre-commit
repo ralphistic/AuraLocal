@@ -1,0 +1,2 @@
+#!/bin/sh
+if command -v python3 >/dev/null 2>&1; then python3 .githooks/pre-commit.py; else py -3 .githooks/pre-commit.py; fi

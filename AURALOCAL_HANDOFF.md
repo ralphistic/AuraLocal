@@ -21,3 +21,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 3. Check GitHub Actions run result and only describe IPA as downloadable after successful release. Always provide direct numbered IPA link.
 4. iPhone manual verification: mini-player swipe up, Now Playing swipe down, no grey screen, scrolling title, only one control set, EQ motion, tempo reset sound, artwork flip, Files linking and version menu.
 5. Keep this file updated when changes are made; future chats should read it before editing.
+
+## Automatic change history
+- 2026-10-13: Added repository-wide AGENTS.md instructions, pre-commit automatic history updates, and CI enforcement of same-commit handoff changes. Never remove these safeguards silently.

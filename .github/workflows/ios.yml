@@ -13,6 +13,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify handoff is updated with every application change
+        run: python3 scripts/check_handoff.py
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
