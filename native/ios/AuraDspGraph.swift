@@ -266,43 +266,15 @@ final class AuraDspGraph {
         let cents = semitones * 100
         if abs(tempo - appliedRate) < 0.0001 &&
            abs(cents - appliedPitchCents) < 0.01 { return }
-        let wasPlaying = isPlaying
+        // AVAudioUnitTimePitch supports live parameter updates. Never stop the
+        // player node, pause the engine, or reset the time-stretcher on drag:
+        // doing so interrupts its scheduled buffers and causes audible clicks.
         let playbackPosition = positionSeconds
-        let path = activeFile?.url.path
-        // Flush the Apple time stretcher's history before a combined change.
-        // It could otherwise leave a resonant/oscillating buffer after reset.
-        if path != nil {
-            source.stop()
-            engine.pause()
-            timePitch.reset()
-        }
         timePitch.rate = tempo
         timePitch.pitch = cents
         appliedRate = tempo
         appliedPitchCents = cents
         anchorSeconds = playbackPosition
         anchorUptime = ProcessInfo.processInfo.systemUptime
-        if let path = path {
-            source.volume = 0
-            do {
-                try playFile(at: path, positionSeconds:
-                    min(playbackPosition, max(0, durationSeconds - 0.001)))
-                if wasPlaying {
-                    let token = generation
-                    for step in 1...12 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.003) { [weak self] in
-                            guard let self = self, self.generation == token else { return }
-                            self.source.volume = Float(step) / 12.0
-                        }
-                    }
-                } else {
-                    pausePlayback()
-                    source.volume = 1
-                }
-            } catch {
-                source.volume = 1
-                throw error
-            }
-        }
     }
 }

@@ -226,8 +226,8 @@ final class AuraPitchBridge {
         }
         let proposed = currentIndex + delta
         if proposed >= 0 && proposed < queue.count { return proposed }
-        if repeatMode == 1 { return (proposed % queue.count + queue.count) % queue.count }
-        return nil
+        // Manual next/previous always wraps the sorted queue at its edges.
+        return (proposed % queue.count + queue.count) % queue.count
     }
 
     private func skip(by delta: Int) throws {

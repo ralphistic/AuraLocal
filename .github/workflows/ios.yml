@@ -142,6 +142,9 @@ jobs:
             gh release create latest-build --title "AuraLocal latest build" --notes "Latest automatically compiled unsigned IPA. Requires signing before iPhone installation." --prerelease
           fi
           gh release upload latest-build "$FILE" --clobber
-          cp "$FILE" AuraLocal-unsigned.ipa
-          gh release upload latest-build AuraLocal-unsigned.ipa --clobber
+          # Keep only versioned filenames on the latest release, so downloads
+          # clearly identify the actual build rather than a generic IPA.
+          gh release view latest-build --json assets --jq '.assets[].name' | while IFS= read -r old; do
+            if [ "$old" != "$FILE" ]; then gh release delete-asset latest-build "$old" --yes; fi
+          done
           gh release edit latest-build --notes "Latest: Build ${NUMBER} (Actions run ${{ github.run_id }}). For historical builds, see numbered releases. Unsigned IPA requires Signulous."

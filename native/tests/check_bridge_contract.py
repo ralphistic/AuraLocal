@@ -55,9 +55,11 @@ require(dart.count("Slider(value: pitchCents") == 0 and
         "Pitch slider. Tap to open semitone and cent wheels" in dart,
         "Single combined pitch slider opens both picker wheels")
 
-require("timePitch.reset()" in graph and "timePitch.overlap = 8" in graph and
-        "source.volume = Float(step) / 12.0" in graph,
-        "Combined pitch and tempo changes flush the native processor and fade in")
+require("timePitch.overlap = 8" in graph and
+        "timePitch.rate = tempo" in graph and "timePitch.pitch = cents" in graph and
+        "timePitch.reset()" not in graph and
+        "source.stop()" not in graph.split("func setTimePitch(")[1],
+        "Pitch and tempo update in-place without stopping or resetting the audio graph")
 require("isSameAudio" in dart and "originalNames" in dart and
         "if (duplicate) continue;" in dart,
         "Repeated audio imports preserve original track labels")
