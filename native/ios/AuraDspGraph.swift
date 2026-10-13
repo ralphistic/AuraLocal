@@ -130,13 +130,16 @@ final class AuraDspGraph {
             // Logarithmic meter compression approximates a perceptual dB
             // display and reveals quieter high-frequency musical details.
             let db = 20.0 * log10(max(0.000001, Double(weighted)))
-            target[band] = Float(min(1, max(0, (db + 64.0) / 58.0)))
+            // Wider visible transients: low-level detail remains visible,
+            // while drum attacks move the contour distinctly.
+            let normalized = Float(min(1, max(0, (db + 57.0) / 49.0)))
+            target[band] = pow(normalized, 1.35)
         }
         waveLock.lock()
         if waveEnabled {
             for i in 0..<bins {
                 let previous = waveValues[i]
-                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 0.65 : 0.13)
+                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 0.94 : 0.34)
             }
         }
         analysisBusy = false
@@ -191,6 +194,13 @@ final class AuraDspGraph {
     func interruptedByAnotherApp() {
         pausePlayback()
         needsInterruptionReprime = activeFile != nil
+    }
+    func outputRouteChanged() {
+        // Bluetooth disconnects may invalidate an already scheduled segment.
+        // A later lock-screen Play must re-prime it on the new output route.
+        guard activeFile != nil else { return }
+        pausePlayback()
+        needsInterruptionReprime = true
     }
     func resumePlayback() throws {
         guard activeFile != nil else {

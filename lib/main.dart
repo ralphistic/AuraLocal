@@ -545,12 +545,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             if (!files.contains(mapped)) files.add(mapped);
           }
         }
-        // A new iOS sandbox UUID must never strand audio already in Documents.
-        await for (final entry in musicDir.list()) {
-          if (entry is File && RegExp(r'\.(flac|mp3|m4a|wav|aac)$',
-              caseSensitive: false).hasMatch(entry.path) &&
-              !files.contains(entry.path)) files.add(entry.path);
-        }
+        // Respect the saved library selection. Never silently re-add old
+        // sandbox imports after the user removes them from the list.
         final migratedFavorites = favorites.map((path) =>
           migrated[path] ?? (path.startsWith('External/') ? (referenced[path] ?? '') : localFilePath(path))).where(files.contains).toSet();
         favorites..clear()..addAll(migratedFavorites);
@@ -690,6 +686,24 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Index restored. Relink any missing files using + (no copies).')));
     } catch (e) { if (mounted) setState(() => error = 'Could not restore index: $e'); }
+  }
+
+  Future<void> clearLibraryList() async {
+    final confirmed = await showDialog<bool>(context: context, builder: (dialog) =>
+      AlertDialog(title: const Text('Clear remembered songs?'),
+        content: const Text('Remove all old song references from this library. Audio files in Files are NOT deleted. Then link only the 9 songs you want using +.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Clear list'))]));
+    if (confirmed != true) return;
+    await nativeDsp.invokeMethod('stopFile');
+    setState(() {
+      files.clear(); queuedPaths.clear(); favorites.clear(); playlists.clear();
+      originalNames.clear(); trackDurations.clear(); dateAdded.clear();
+      currentIndex = -1; isPlaying = false; activePlaylist = null;
+      favoritesOnly = false; query = ''; searchController.clear();
+    });
+    await syncQueue();
+    await saveLibrary();
   }
 
   Future<void> importInPlace() async {
@@ -882,70 +896,39 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     }
   }
 
-  void showLibrary() => dismissPlayer();
-
-  void dismissPlayer() {
-    if (libraryHome || dismissingPlayer) return;
-    final height = MediaQuery.sizeOf(context).height;
-    setState(() {
-      dismissingPlayer = true;
+  void showLibrary() {
+    if (mounted) setState(() {
+      libraryHome = true;
+      playerDrag = 0;
       draggingPlayer = false;
-      playerDrag = height;
-    });
-    Future<void>.delayed(const Duration(milliseconds: 290), () {
-      if (mounted && dismissingPlayer) {
-        setState(() {
-          libraryHome = true;
-          playerDrag = 0;
-          dismissingPlayer = false;
-        });
-      }
+      dismissingPlayer = false;
     });
   }
 
+  void dismissPlayer() => showLibrary();
+
   void showPlayer() {
-    if (!libraryHome) return;
-    final height = MediaQuery.sizeOf(context).height;
-    setState(() {
+    if (mounted) setState(() {
       libraryHome = false;
       dismissingPlayer = false;
-      playerDrag = height;
-      draggingPlayer = true;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() { draggingPlayer = false; playerDrag = 0; });
+      playerDrag = 0;
+      draggingPlayer = false;
     });
   }
 
   void startMiniSwipe() {
     if (!libraryHome) return;
     miniSwipeTravel = 0;
-    setState(() {
-      libraryHome = false;
-      playerDrag = MediaQuery.sizeOf(context).height;
-      draggingPlayer = true;
-      dismissingPlayer = false;
-    });
   }
 
   void updateMiniSwipe(DragUpdateDetails details) {
     miniSwipeTravel += details.delta.dy;
-    setState(() {
-      playerDrag = (MediaQuery.sizeOf(context).height + miniSwipeTravel)
-          .clamp(0.0, MediaQuery.sizeOf(context).height).toDouble();
-    });
   }
 
   void finishMiniSwipe(DragEndDetails details) {
     final rise = -miniSwipeTravel;
     if (rise > 34 || (details.primaryVelocity ?? 0) < -220) {
-      // A short upward swipe magnetically opens the full player.
-      setState(() {
-        playerDrag = 0;
-        draggingPlayer = false;
-      });
-    } else {
-      dismissPlayer();
+      showPlayer();
     }
   }
 
@@ -1795,9 +1778,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               exportLibraryBackup();
             } else if (value == 'restore') {
               restoreLibraryBackup();
+            } else if (value == 'clearList') {
+              clearLibraryList();
             }
           },
           itemBuilder: (_) => [
+            const PopupMenuItem(value: 'clearList',
+              child: ListTile(leading: Icon(Icons.playlist_remove),
+                title: Text('Clear remembered song list'),
+                subtitle: Text('Keep original files; start with a clean list'))),
             const PopupMenuItem(value: 'copyImport',
               child: ListTile(leading: Icon(Icons.file_copy_outlined),
                 title: Text('Copy music into app'),
@@ -2104,24 +2093,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    return Stack(children: [
-      buildLibrary(),
-      if (!libraryHome) AnimatedContainer(
-        duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
-        transform: Matrix4.translationValues(0, playerDrag, 0),
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
-          onVerticalDragUpdate: (details) => setState(() {
-            playerDrag = (playerDrag + details.delta.dy).clamp(0.0, MediaQuery.sizeOf(context).height).toDouble();
-          }),
-          onVerticalDragEnd: finishPlayerDrag,
-          onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
-          child: buildPlayer(),
-        ),
-      ),
-    ]);
+    // The full-screen player must never be translated beyond the viewport.
+    // Keep exactly one visible page, so a cancelled drag cannot leave a grey
+    // full-screen overlay blocking the music library.
+    return libraryHome ? buildLibrary() : buildPlayer();
   }
 }
 

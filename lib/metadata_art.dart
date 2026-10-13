@@ -28,12 +28,19 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
   @override
   void didUpdateWidget(covariant ArtworkFlipCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.trackName != widget.trackName) flip.reverse();
+    if (oldWidget.trackName != widget.trackName ||
+        oldWidget.metadata['artworkData'] != widget.metadata['artworkData'] ||
+        oldWidget.metadata['artworkUrl'] != widget.metadata['artworkUrl']) {
+      flip.reverse();
+    }
   }
   void toggle() {
     if (widget.embeddedArtwork != null ||
         (widget.metadata['artworkUrl'] ?? '').isNotEmpty ||
-        (widget.metadata['artworkData'] ?? '').isNotEmpty) return;
+        (widget.metadata['artworkData'] ?? '').isNotEmpty) {
+      openEditor(context);
+      return;
+    }
     if (flip.value > 0.5) { flip.reverse(); } else { flip.forward(); }
   }
   @override
@@ -69,7 +76,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
     final artwork = widget.metadata['artworkUrl'] ?? '';
     final localArtwork = widget.metadata['artworkData'] ?? '';
     return Stack(fit: StackFit.expand, children: [
-      if (localArtwork.isNotEmpty) Builder(builder: (_) {
+      if (localArtwork.isNotEmpty) Builder(builder: (artContext) {
         try {
           return Image.memory(base64Decode(localArtwork), fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => _generic());

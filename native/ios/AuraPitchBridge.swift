@@ -22,6 +22,8 @@ final class AuraPitchBridge {
         registerRemoteCommands()
         NotificationCenter.default.addObserver(self, selector: #selector(audioInterrupted(_:)),
                                                name: AVAudioSession.interruptionNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(audioRouteChanged(_:)),
+                                               name: AVAudioSession.routeChangeNotification, object: nil)
         channel.setMethodCallHandler { [weak self] call, result in
             guard let self = self else {
                 result(FlutterError(code: "UNAVAILABLE", message: "Bridge released", details: nil))
@@ -295,6 +297,18 @@ final class AuraPitchBridge {
             MPNowPlayingInfoPropertyElapsedPlaybackTime: graph.positionSeconds,
             MPNowPlayingInfoPropertyPlaybackRate: graph.isPlaying ? Double(graph.timePitch.rate) : 0.0
         ]
+    }
+
+    @objc private func audioRouteChanged(_ notice: Notification) {
+        guard let reasonValue = notice.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue.uintValue),
+              reason == .oldDeviceUnavailable else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.graph.outputRouteChanged()
+            self.updateNowPlaying(force: true)
+            self.report()
+        }
     }
 
     @objc private func audioInterrupted(_ notice: Notification) {
