@@ -57,26 +57,28 @@ final class AuraFileReferences: NSObject, UIDocumentPickerDelegate {
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        var stored = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: String] ?? [:]
-        var picked: [[String: String]] = []
+        // Do not synchronously generate provider bookmarks in the picker
+        // callback. iCloud/third-party providers can block the UI for seconds.
+        let picked = urls.map { ["path": $0.path, "name": $0.lastPathComponent] }
         for url in urls {
-            // Some local Files URLs are readable without a security-scope token.
-            // A false return does not mean the user cancelled selection.
             _ = url.startAccessingSecurityScopedResource()
-            let path = url.path
-            granted[path] = url
-            do {
-                let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-                stored[url.lastPathComponent + "|" + path] = bookmark.base64EncodedString()
-                picked.append(["path": path, "name": url.lastPathComponent])
-            } catch {
-                // Access is still valid for this session, but may not survive relaunch.
-                picked.append(["path": path, "name": url.lastPathComponent])
-            }
+            granted[url.path] = url
         }
-        UserDefaults.standard.set(stored, forKey: storageKey)
-        pending?(picked)
+        let completion = pending
         pending = nil
+        controller.dismiss(animated: true) {
+            completion?(picked)
+        }
+        // Persist bookmarks away from the UI thread, without holding up import.
+        DispatchQueue.global(qos: .utility).async { [storageKey] in
+            var stored = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: String] ?? [:]
+            for url in urls {
+                if let bookmark = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
+                    stored[url.lastPathComponent + "|" + url.path] = bookmark.base64EncodedString()
+                }
+            }
+            UserDefaults.standard.set(stored, forKey: storageKey)
+        }
     }
 
     private func restore() -> [[String: String]] {
