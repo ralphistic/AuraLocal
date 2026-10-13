@@ -2137,7 +2137,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],
-      )), 
+      ))), 
     );
   }
 
