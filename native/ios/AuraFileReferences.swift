@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 final class AuraFileReferences: NSObject, UIDocumentPickerDelegate {
     private let channel: FlutterMethodChannel
     private var pending: FlutterResult?
+    private var documentInteraction: UIDocumentInteractionController?
     private var granted: [String: URL] = [:]
     private let storageKey = "AuraLocal.securityScopedAudioBookmarks"
 
@@ -18,9 +19,40 @@ final class AuraFileReferences: NSObject, UIDocumentPickerDelegate {
             switch call.method {
             case "pickInPlace": self.presentPicker(result)
             case "restoreReferences": result(self.restore())
+            case "openOriginalLocation":
+                guard let path = call.arguments as? String else {
+                    result(FlutterError(code: "INVALID_PATH", message: "Missing file path", details: nil))
+                    return
+                }
+                self.openOriginalLocation(path, result: result)
             default: result(FlutterMethodNotImplemented)
             }
         }
+    }
+
+    private func openOriginalLocation(_ path: String, result: @escaping FlutterResult) {
+        // iOS does not expose a public API to reveal an arbitrary file in its
+        // original Files folder. Show the system document interaction options
+        // for its original security-scoped URL instead of a misleading path copy.
+        let url = granted[path] ?? URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            result(FlutterError(code: "FILE_UNAVAILABLE", message: "Original file is no longer accessible. Relink it from Files.", details: nil))
+            return
+        }
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow })?.rootViewController else {
+            result(FlutterError(code: "NO_WINDOW", message: "Cannot open document options", details: nil))
+            return
+        }
+        var presenter = root
+        while let presented = presenter.presentedViewController { presenter = presented }
+        let interaction = UIDocumentInteractionController(url: url)
+        documentInteraction = interaction
+        let shown = interaction.presentOptionsMenu(from: CGRect(x: presenter.view.bounds.midX,
+            y: presenter.view.bounds.midY, width: 1, height: 1), in: presenter.view, animated: true)
+        if !shown { documentInteraction = nil }
+        result(shown)
     }
 
     private func presentPicker(_ result: @escaping FlutterResult) {

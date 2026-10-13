@@ -817,8 +817,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       if (mounted) {
         setState(() => error = null);
         if (skipped > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(skipped == 1 ? 'Already imported â€” original title preserved.'
-              : '$skipped existing tracks skipped â€” original titles preserved.'),
+          content: Text(skipped == 1 ? 'Already imported  -  original title preserved.'
+              : '$skipped existing tracks skipped  -  original titles preserved.'),
         ));
       }
     } catch (e) {
@@ -1338,7 +1338,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       children: [
                         Text('Audio Equalizer', style: TextStyle(
                           fontSize: 21, fontWeight: FontWeight.bold)),
-                        Text('10-band â€¢ native audio processing',
+                        Text('10-band  -  native audio processing',
                           style: TextStyle(fontSize: 12, color: Colors.white70)),
                       ],
                     )),
@@ -1443,7 +1443,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             const Text('Adjust the one native audio engine. Your original FLAC files remain unchanged.',
               textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 14),
-            Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones Â· ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
+            Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones  |  ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
             // Drag the combined pitch slider, double-tap to reset, or use
             // the dedicated precision picker for semitones and cents.
             Semantics(
@@ -1785,17 +1785,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> showOriginalFileLocation(String path) async {
     if (!mounted) return;
-    await showDialog<void>(context: context, builder: (dialog) => AlertDialog(
-      title: const Text('Original audio file'),
-      content: SelectableText(path),
-      actions: [
-        TextButton(onPressed: () async {
-          await Clipboard.setData(ClipboardData(text: path));
-          if (dialog.mounted) Navigator.pop(dialog);
-        }, child: const Text('Copy file location')),
-        FilledButton(onPressed: () => Navigator.pop(dialog), child: const Text('Close')),
-      ],
-    ));
+    try {
+      final opened = await fileReferences.invokeMethod<bool>('openOriginalLocation', path) ?? false;
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Files cannot show this location directly. Open the original file in Files to locate it.')));
+      }
+    } on PlatformException catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error.message ?? 'Original file is unavailable. Relink it from Files.')));
+    }
   }
 
   Future<void> saveTrackMetadata(String path, Map<String, String> data) async {
@@ -1870,7 +1869,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ),
       ]),
       body: SafeArea(child: Column(children: [
-        Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 4), child: SizedBox(height: 38, child: TextField(
+        Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8), child: SizedBox(height: 38, child: TextField(
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
           controller: searchController,
@@ -1957,7 +1956,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   label: const Text('Restore saved AuraLocal backup')),
                 const Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('iOS deletes an appâ€™s private music when you uninstall it.\n'
+                  child: Text('iOS deletes an app\'s private music when you uninstall it.\n'
                     'Back up to Files before changing your signing or installation.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
