@@ -2004,30 +2004,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     final maximum = math.max(durationSeconds, 0.001);
     return Scaffold(
       backgroundColor: const Color(0xFF221A1B),
-      bottomNavigationBar: SafeArea(top: false, child: Container(
-        color: const Color(0xFF221A1B),
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFFFFB8A5), fontSize: 19, fontWeight: FontWeight.w700)),
-          Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
-            onChanged: durationSeconds <= 0 ? null : (value) => seekTo(value)),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(clock(effectivePosition), style: const TextStyle(color: Colors.white70)),
-            Text(clock(durationSeconds), style: const TextStyle(color: Colors.white70)),
-          ]),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-            IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1),
-              icon: const Icon(Icons.skip_previous), iconSize: 32),
-            IconButton.filled(tooltip: 'Play or pause', onPressed: files.isEmpty ? import : togglePlayback,
-              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow, size: 32)),
-            IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1),
-              icon: const Icon(Icons.skip_next), iconSize: 32),
-          ]),
-          TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune),
-            label: const Text('Pitch and tempo')),
-        ]),
-      )),
       appBar: AppBar(
         backgroundColor: const Color(0xFF221A1B),
         foregroundColor: const Color(0xFFFFB8A5),
