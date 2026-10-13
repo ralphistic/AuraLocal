@@ -1846,7 +1846,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ])),
         Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6),
           child: Align(alignment: Alignment.centerLeft,
-            child: Text(activePlaylist == null ? '${files.length} songs' :
+            child: Text(activePlaylist == null
+              ? (matches.length == files.length ? '${files.length} songs'
+                  : '${matches.length} of ${files.length} songs') :
               '${activePlaylist!} • ${matches.length} songs',
               style: const TextStyle(color: Colors.white70)))),
         if (files.isNotEmpty && matches.isEmpty)

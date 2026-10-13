@@ -43,6 +43,7 @@ jobs:
         run: |
           flutter create --platforms=ios --project-name auralocal .
           flutter pub get
+          flutter test test/metadata_art_test.dart
           flutter build ios --config-only --release --no-codesign
       - name: Stage native DSP Swift source for iOS compilation
         run: |
