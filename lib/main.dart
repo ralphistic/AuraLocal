@@ -1059,7 +1059,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161B26),
+      backgroundColor: const Color(0xFF24211E),
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, refresh) {
@@ -1645,9 +1645,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragEnd: finishMiniSwipe,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 240),
-            color: const Color(0xFF29483F),
+            color: const Color(0xFF9E381F),
             child: ListTile(
-            leading: const Icon(Icons.graphic_eq, color: Colors.tealAccent),
+            leading: const Icon(Icons.graphic_eq, color: const Color(0xFFF4D653)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
               style: const TextStyle(fontWeight: FontWeight.w600)),
             onTap: showPlayer,
@@ -1679,7 +1679,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         title: const Text('Now Playing'),
         actions: [
           IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
-            color: waveformVisible ? Colors.tealAccent : Colors.white,
+            color: waveformVisible ? const Color(0xFFF4D653) : Colors.white,
             icon: const Icon(Icons.waves)),
           IconButton(tooltip: 'Equalizer', icon: const Icon(Icons.equalizer),
             color: eqEnabled ? activeEqAccent : Colors.white,
@@ -1703,7 +1703,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               IconButton(tooltip: 'Favorite',
                 onPressed: () => toggleFavorite(files[currentIndex]),
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite : Icons.favorite_border,
-                  color: const Color(0xFF9BE9C6))),
+                  color: const Color(0xFFF4D653))),
           ]),
           AnimatedSize(duration: const Duration(milliseconds: 280), curve: Curves.easeInOutCubic,
             alignment: Alignment.topCenter,
@@ -1728,7 +1728,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
                   if (sourceLossless) 'Lossless source'].join('  ·  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 10, color: Color(0xFF332B23))))),
+                style: const TextStyle(fontSize: 10, color: Color(0xFFF4D653))))),
           Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
             onChangeStart: durationSeconds <= 0 ? null :
               (value) => setState(() { draggingSeek = true; scrubPosition = value; }),
@@ -1744,7 +1744,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ]),
           const SizedBox(height: 10),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            IconButton(tooltip: 'Shuffle', color: shuffle ? Colors.tealAccent : Colors.white,
+            IconButton(tooltip: 'Shuffle', color: shuffle ? const Color(0xFFF4D653) : Colors.white,
               onPressed: () async {
                 setState(() => shuffle = !shuffle);
                 await syncQueue(); await saveLibrary();
@@ -1759,7 +1759,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1),
               icon: const Icon(Icons.skip_next), iconSize: 36),
             Column(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : Colors.tealAccent,
+              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : const Color(0xFFF4D653),
                 onPressed: () async {
                   setState(() => repeat = (repeat + 1) % 3);
                   await syncQueue(); await saveLibrary();
@@ -1845,7 +1845,7 @@ class LiveWaveformPainter extends CustomPainter {
     }
     curve.lineTo(points.last.dx, points.last.dy);
     final paint = Paint()
-      ..color = isPlaying ? const Color(0xFF9BE9C6) : const Color(0xFF6B8E84)
+      ..color = isPlaying ? const Color(0xFFF4D653) : const Color(0xFFE85E35)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6
       ..strokeCap = StrokeCap.round
@@ -1971,7 +1971,7 @@ class EqBandTrackPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(middleX, zeroY),
       Offset(middleX, thumbY), selected);
-    final ring = Paint()..color = const Color(0xFF161B26);
+    final ring = Paint()..color = const Color(0xFF24211E);
     canvas.drawCircle(Offset(middleX, thumbY), 8, ring);
     canvas.drawCircle(Offset(middleX, thumbY), 6,
       Paint()..color = accent);
