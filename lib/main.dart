@@ -1748,8 +1748,23 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Map<String, String> metadataFor(String path) =>
     trackMetadata[manifestTrackKey(path)] ?? const <String, String>{};
 
+  Future<void> showOriginalFileLocation(String path) async {
+    if (!mounted) return;
+    await showDialog<void>(context: context, builder: (dialog) => AlertDialog(
+      title: const Text('Original audio file'),
+      content: SelectableText(path),
+      actions: [
+        TextButton(onPressed: () async {
+          await Clipboard.setData(ClipboardData(text: path));
+          if (dialog.mounted) Navigator.pop(dialog);
+        }, child: const Text('Copy file location')),
+        FilledButton(onPressed: () => Navigator.pop(dialog), child: const Text('Close')),
+      ],
+    ));
+  }
+
   Future<void> saveTrackMetadata(String path, Map<String, String> data) async {
-    trackMetadata[manifestTrackKey(path)] = data;
+    if (mounted) setState(() => trackMetadata[manifestTrackKey(path)] = Map.of(data));
     await saveLibrary();
     if (currentIndex >= 0 && currentIndex < files.length && files[currentIndex] == path) {
       await setNativeTitle();
@@ -1920,6 +1935,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   style: const TextStyle(color: Colors.white70)),
                 trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert),
                   onPressed: () => trackMenu(files[index])),
+                onLongPress: () => showOriginalFileLocation(files[index]),
                 onTap: () async {
                   await selectAndPlayTrack(index);
                   if (mounted) showPlayer();

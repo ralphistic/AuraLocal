@@ -29,8 +29,8 @@ require("DropdownButton<double>" not in dart and "Playing from Your Library" not
 require("LiveWaveformPainter" in dart and "installTap(onBus:" in graph and
         "waveform()" in graph,
         "Live waveform samples come from native audio output")
-require("onVerticalDragUpdate:" in dart and "AnimatedContainer(" in dart,
-        "Interactive drag-to-minimize and UI animation are present")
+require("return libraryHome ? buildLibrary() : buildPlayer();" in dart,
+        "Player stays within screen bounds instead of dragging an overlay offscreen")
 require("source.scheduleSegment(file" in graph and "source.play()" in graph and
         "engine.connect(equalizer, to: timePitch" in graph,
         "FLAC runs through the existing Apple TimePitch graph")
@@ -74,7 +74,7 @@ require("onPointerUp:" in dart and "pitchTouchMoved" in dart and
         "onChangeEnd: (_) => updateNativePitchTempo()" in dart,
         "Pitch slider supports dragging and precision picker tapping")
 require("startMiniSwipe()" in dart and "finishMiniSwipe" in dart and
-        "void showLibrary() => dismissPlayer();" in dart,
-        "Magnetic swipe-up and animated down-arrow dismissal exist")
+        "return libraryHome ? buildLibrary() : buildPlayer();" in dart,
+        "Swipe-up opens a bounded player; minimize cannot strand a grey overlay")
 require("curve.quadraticBezierTo" in dart and "canvas.drawPath(curve, paint)" in dart,
         "Live EQ is rendered as a single responsive frequency contour")
