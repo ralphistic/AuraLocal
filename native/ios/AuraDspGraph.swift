@@ -190,13 +190,20 @@ final class AuraDspGraph {
             }
         }
         if !engine.isRunning { try engine.start() }
-        // Short attack ramp reduces boundary clicks without altering the file.
-        source.volume = 0
+        // Offline native regression tests render synchronously without pumping
+        // the main dispatch queue. Do not leave their player permanently muted.
+        if engine.manualRenderingMode != .offline {
+            source.volume = 0
+        } else {
+            source.volume = 1
+        }
         source.play()
-        for step in 1...8 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.004) { [weak self] in
-                guard let self = self, self.generation == token else { return }
-                self.source.volume = Float(step) / 8.0
+        if engine.manualRenderingMode != .offline {
+            for step in 1...8 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.004) { [weak self] in
+                    guard let self = self, self.generation == token else { return }
+                    self.source.volume = Float(step) / 8.0
+                }
             }
         }
     }
