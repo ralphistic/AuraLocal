@@ -2005,7 +2005,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     return Scaffold(
       backgroundColor: const Color(0xFF221A1B),
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xFF221A1B),
+        foregroundColor: const Color(0xFFFFB8A5),
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down),
           onPressed: showLibrary),
         title: const Text('Now Playing'),
@@ -2021,12 +2022,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ],
       ),
       body: SafeArea(child: LayoutBuilder(builder: (context, viewport) =>
-        SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: Padding(padding: const EdgeInsets.fromLTRB(22, 6, 22, 14),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListView(
+          key: const PageStorageKey<String>('now-playing-content'),
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(22, 6, 22, 28),
+          children: [
           const SizedBox(height: 12),
-          SizedBox(height: math.min(viewport.maxHeight * 0.43, 340),
+          SizedBox(height: math.min(viewport.maxHeight * 0.32, 260),
             child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
@@ -2134,8 +2136,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             label: const Text('Pitch and tempo')),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
-        ]),
-      )))),
+        ],
+      )), 
     );
   }
 
