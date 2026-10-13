@@ -44,6 +44,7 @@ jobs:
           test -f native/ios/AuraDspGraph.swift
           cp native/ios/AuraDspGraph.swift ios/Runner/AuraDspGraph.swift
           cp native/ios/AuraPitchBridge.swift ios/Runner/AuraPitchBridge.swift
+          cp native/ios/AuraFileReferences.swift ios/Runner/AuraFileReferences.swift
           python3 - <<'PY'
           from pathlib import Path
           p = Path('ios/Runner.xcodeproj/project.pbxproj')
@@ -60,7 +61,7 @@ jobs:
           abort 'Runner target not found' unless target
           group = project.main_group.find_subpath('Runner', false)
           abort 'Runner group not found' unless group
-          ['AuraDspGraph.swift', 'AuraPitchBridge.swift'].each do |name|
+          ['AuraDspGraph.swift', 'AuraPitchBridge.swift', 'AuraFileReferences.swift'].each do |name|
             reference = group.files.find { |f| f.path == name } || group.new_file(name)
             unless target.source_build_phase.files_references.include?(reference)
               target.source_build_phase.add_file_reference(reference)
@@ -84,6 +85,7 @@ jobs:
           @main
           @objc class AppDelegate: FlutterAppDelegate {
             private var pitchBridge: AuraPitchBridge?
+            private var fileReferences: AuraFileReferences?
 
             override func application(
               _ application: UIApplication,
@@ -96,6 +98,7 @@ jobs:
                 fatalError("AuraPitchBridge registrar unavailable")
               }
               pitchBridge = AuraPitchBridge(messenger: registrar.messenger())
+              fileReferences = AuraFileReferences(messenger: registrar.messenger())
               return super.application(application, didFinishLaunchingWithOptions: launchOptions)
             }
           }

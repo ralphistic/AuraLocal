@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'metadata_art.dart';
 
 /// Scroll long titles smoothly without changing button placement.
 class ScrollingTrackTitle extends StatefulWidget {
@@ -83,8 +84,10 @@ class MusicPage extends StatefulWidget {
 
 class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMixin {
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
+  static const fileReferences = MethodChannel('auralocal/file_references');
   final files = <String>[];
   final originalNames = <String, String>{};
+  final trackMetadata = <String, Map<String, String>>{};
   final eqGains = List<double>.filled(10, 0);
   final customEqPresets = <String, List<double>>{};
   bool eqEnabled = false;
@@ -268,7 +271,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   String manifestTrackKey(String absolutePath) =>
-      'Music/' + Uri.file(absolutePath).pathSegments.last;
+      (absolutePath.contains('/Documents/Music/') ? 'Music/' : 'External/') +
+      Uri.file(absolutePath).pathSegments.last;
 
   Future<void> saveLibrary() async {
     final manifest = await libraryManifest();
@@ -279,6 +283,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           MapEntry(name, tracks.map(manifestTrackKey).toList())),
       'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed,
       'globalDSP': globalDSP, 'songDSP': songDSP,
+      'trackMetadata': trackMetadata,
       'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones,
       'originalNames': originalNames.map((path, name) =>
           MapEntry(manifestTrackKey(path), name)),
@@ -427,6 +432,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         if (decoded is Map) {
           if (decoded['favorites'] is List) favorites.addAll((decoded['favorites'] as List).whereType<String>());
           shuffle = decoded['shuffle'] == true;
+          if (decoded['trackMetadata'] is Map) {
+            (decoded['trackMetadata'] as Map).forEach((key, value) {
+              if (key is String && value is Map) {
+                trackMetadata[key] = value.map((k, v) => MapEntry(k.toString(), v.toString()));
+              }
+            });
+          }
           globalDSP = decoded['globalDSP'] == true;
           if (decoded['songDSP'] is Map) {
             (decoded['songDSP'] as Map).forEach((key, values) {
@@ -490,9 +502,21 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }
         }
         final migrated = <String, String>{};
+        // Reopen security-scoped bookmarks. A moved file can resolve to its new
+        // location when its Files provider supports persistent document IDs.
+        final referenced = <String, String>{};
+        try {
+          final recovered = await fileReferences.invokeListMethod<dynamic>('restoreReferences');
+          for (final raw in recovered ?? <dynamic>[]) {
+            if (raw is Map && raw['name'] is String && raw['path'] is String) {
+              referenced['External/' + raw['name']] = raw['path'];
+            }
+          }
+        } catch (_) {}
         for (final old in saved) {
-          final mapped = localFilePath(old);
-          if (await File(mapped).exists()) {
+          final mapped = old.startsWith('External/')
+            ? (referenced[old] ?? '') : localFilePath(old);
+          if (mapped.isNotEmpty && await File(mapped).exists()) {
             migrated[old] = mapped;
             if (!files.contains(mapped)) files.add(mapped);
           }
@@ -504,23 +528,23 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               !files.contains(entry.path)) files.add(entry.path);
         }
         final migratedFavorites = favorites.map((path) =>
-          migrated[path] ?? localFilePath(path)).where(files.contains).toSet();
+          migrated[path] ?? (path.startsWith('External/') ? (referenced[path] ?? '') : localFilePath(path))).where(files.contains).toSet();
         favorites..clear()..addAll(migratedFavorites);
         final names = <String, String>{};
         originalNames.forEach((path, name) {
-          final mapped = migrated[path] ?? localFilePath(path);
+          final mapped = migrated[path] ?? (path.startsWith('External/') ? (referenced[path] ?? '') : localFilePath(path));
           if (files.contains(mapped)) names[mapped] = name;
         });
         originalNames..clear()..addAll(names);
         final dates = <String, int>{};
         dateAdded.forEach((path, timestamp) {
-          final mapped = migrated[path] ?? localFilePath(path);
+          final mapped = migrated[path] ?? (path.startsWith('External/') ? (referenced[path] ?? '') : localFilePath(path));
           if (files.contains(mapped)) dates[mapped] = timestamp;
         });
         dateAdded..clear()..addAll(dates);
         final lengths = <String, double>{};
         trackDurations.forEach((path, seconds) {
-          final mapped = migrated[path] ?? localFilePath(path);
+          final mapped = migrated[path] ?? (path.startsWith('External/') ? (referenced[path] ?? '') : localFilePath(path));
           if (files.contains(mapped)) lengths[mapped] = seconds;
         });
         trackDurations..clear()..addAll(lengths);
@@ -581,6 +605,32 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     } finally {
       await left.close();
       await right.close();
+    }
+  }
+
+  Future<void> importInPlace() async {
+    try {
+      final picked = await fileReferences.invokeListMethod<dynamic>('pickInPlace');
+      if (picked == null || picked.isEmpty) return;
+      var added = 0;
+      for (final raw in picked) {
+        if (raw is! Map || raw['path'] is! String) continue;
+        final path = raw['path'] as String;
+        if (!await File(path).exists() || files.contains(path)) continue;
+        // Do not make a second audio copy; keep the Files provider's URL.
+        files.add(path);
+        originalNames[path] = (raw['name'] as String?) ?? path.split('/').last;
+        dateAdded[path] = DateTime.now().millisecondsSinceEpoch;
+        added++;
+      }
+      if (added > 0) {
+        await syncQueue();
+        await saveLibrary();
+        await loadMissingDurations();
+        if (mounted) setState(() => error = null);
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = 'Could not link Files audio: $e');
     }
   }
 
@@ -906,6 +956,19 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   void trackMenu(String path) {
     showModalBottomSheet<void>(context: context, builder: (sheet) => SafeArea(child:
       Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(leading: const Icon(Icons.edit_note), title: const Text('Edit metadata'),
+          onTap: () {
+            Navigator.pop(sheet);
+            showModalBottomSheet<void>(context: context, isScrollControlled: true,
+              builder: (sheet) => SafeArea(child: Padding(padding: const EdgeInsets.all(24),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  SizedBox(height: 280, child: Center(child: AspectRatio(aspectRatio: 1,
+                    child: ArtworkFlipCard(trackName: displayName(path),
+                      metadata: metadataFor(path),
+                      onSave: (data) => saveTrackMetadata(path, data))))),
+                  const Text('Tap artwork to add or search metadata.'),
+                ]))));
+          }),
         ListTile(leading: const Icon(Icons.playlist_add), title: const Text('Add to playlist'),
           onTap: () { Navigator.pop(sheet); addToPlaylist(path); }),
         ListTile(leading: Icon(favorites.contains(path) ? Icons.favorite : Icons.favorite_border),
@@ -1593,12 +1656,21 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     }
   }
 
+  Map<String, String> metadataFor(String path) =>
+    trackMetadata[manifestTrackKey(path)] ?? const <String, String>{};
+
+  Future<void> saveTrackMetadata(String path, Map<String, String> data) async {
+    trackMetadata[manifestTrackKey(path)] = data;
+    await saveLibrary();
+    if (mounted) setState(() {});
+  }
+
   Widget buildLibrary() {
     final matches = orderedTrackIndices();
     return Scaffold(
       appBar: AppBar(title: const Text('Your Library'), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add), onPressed: createPlaylist),
-        IconButton(tooltip: 'Import music', icon: const Icon(Icons.add), onPressed: import),
+        IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add), onPressed: importInPlace),
         PopupMenuButton<String>(
           tooltip: 'Library backup and restore',
           icon: const Icon(Icons.more_vert),
@@ -1676,12 +1748,24 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             child: Text(activePlaylist == null ? '${files.length} songs' :
               '${activePlaylist!} • ${matches.length} songs',
               style: const TextStyle(color: Colors.white70)))),
-        Expanded(child: files.isEmpty
+        if (files.isNotEmpty && matches.isEmpty)
+          Expanded(child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.filter_alt_off, size: 44),
+            const SizedBox(height: 12),
+            const Text('No songs match this view'),
+            TextButton(onPressed: () {
+              searchController.clear();
+              setState(() { query = ''; favoritesOnly = false; activePlaylist = null; });
+              syncQueue();
+            }, child: const Text('Show all songs')),
+          ])))
+        else Expanded(child: files.isEmpty
           ? Center(child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                FilledButton.icon(onPressed: import, icon: const Icon(Icons.add),
-                  label: const Text('Import your music')),
+                FilledButton.icon(onPressed: importInPlace, icon: const Icon(Icons.add),
+                  label: const Text('Link music from Files (no copies)')),
+                TextButton(onPressed: import, child: const Text('Copy music into app instead')),
                 const SizedBox(height: 14),
                 TextButton.icon(onPressed: restoreLibraryBackup,
                   icon: const Icon(Icons.restore),
@@ -1770,17 +1854,24 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             color: eqEnabled ? activeEqAccent : Colors.white,
             onPressed: showEqualizer),
           IconButton(tooltip: 'Queue', icon: const Icon(Icons.queue_music), onPressed: showQueue),
-          IconButton(tooltip: 'Import music', icon: const Icon(Icons.add_circle_outline), onPressed: import),
+          IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline), onPressed: importInPlace),
         ],
       ),
       body: SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(22, 6, 22, 14),
         child: Column(children: [
           const Spacer(),
-          Expanded(flex: 5, child: Container(
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(24),
-              gradient: const LinearGradient(colors: [Color(0xFFF08078), Color(0xFFF2CB47)])),
-            child: const Center(child: Icon(Icons.music_note, size: 120, color: Color(0xFF221A1B))),
-          )),
+          Expanded(flex: 5, child: Center(child: LayoutBuilder(builder: (_, bounds) {
+            final side = math.min(bounds.maxWidth, bounds.maxHeight);
+            if (currentIndex < 0 || currentIndex >= files.length) {
+              return SizedBox.square(dimension: side, child: const ColoredBox(
+                color: Color(0xFFF08078), child: Icon(Icons.music_note, size: 100)));
+            }
+            final path = files[currentIndex];
+            return SizedBox.square(dimension: side, child: ArtworkFlipCard(
+              key: ValueKey(path), trackName: displayName(path),
+              metadata: metadataFor(path),
+              onSave: (data) => saveTrackMetadata(path, data)));
+          }))),
           const SizedBox(height: 22),
           Row(children: [
             Expanded(child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFFFFB8A5)))),
