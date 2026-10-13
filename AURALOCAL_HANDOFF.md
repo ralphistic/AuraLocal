@@ -24,3 +24,4 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 
 ## Automatic change history
 - 2026-10-13: Added repository-wide AGENTS.md instructions, pre-commit automatic history updates, and CI enforcement of same-commit handoff changes. Never remove these safeguards silently.
+- 2026-10-13: Updated Flutter artwork regression test to expect sentence-case Add metadata? label, matching the requested UI. Do not revert the app label to uppercase just to pass tests.

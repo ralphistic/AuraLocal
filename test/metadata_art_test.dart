@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:auralocal/metadata_art.dart';
 
@@ -18,7 +18,7 @@ void main() {
     expect(size.width, size.height);
     await tester.tap(aspect);
     await tester.pumpAndSettle();
-    expect(find.text('ADD METADATA?'), findsOneWidget);
+    expect(find.text('Add metadata?'), findsOneWidget);
     expect(find.text('Enter manually'), findsOneWidget);
     expect(find.text('Find online'), findsOneWidget);
   });
@@ -45,3 +45,4 @@ void main() {
     expect(find.text('Track number'), findsOneWidget);
   });
 }
+
