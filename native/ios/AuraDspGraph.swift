@@ -133,14 +133,15 @@ final class AuraDspGraph {
             let db = 20.0 * log10(max(0.000001, Double(weighted)))
             // Wider visible transients: low-level detail remains visible,
             // while drum attacks move the contour distinctly.
-            let normalized = Float(min(1, max(0, (db + 52.0) / 42.0)))
-            target[band] = pow(normalized, 1.7)
+            let normalized = Float(min(1, max(0, (db + 62.0) / 54.0)))
+            // Exaggerate peaks and preserve quiet valleys; fast attacks, fast decay.
+            target[band] = pow(normalized, 2.6)
         }
         waveLock.lock()
         if waveEnabled {
             for i in 0..<bins {
                 let previous = waveValues[i]
-                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 1.0 : 0.62)
+                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 1.0 : 0.88)
             }
         }
         analysisBusy = false

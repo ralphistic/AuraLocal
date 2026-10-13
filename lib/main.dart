@@ -194,7 +194,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
         final before = previous[i];
-        return before + (target - before) * (target > before ? 0.86 : 0.42);
+        return before + (target - before) * (target > before ? 1.0 : 0.85);
       });
       waveformLevels.value = next;
     });
@@ -817,8 +817,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       if (mounted) {
         setState(() => error = null);
         if (skipped > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(skipped == 1 ? 'Already imported — original title preserved.'
-              : '$skipped existing tracks skipped — original titles preserved.'),
+          content: Text(skipped == 1 ? 'Already imported â€” original title preserved.'
+              : '$skipped existing tracks skipped â€” original titles preserved.'),
         ));
       }
     } catch (e) {
@@ -1328,7 +1328,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       children: [
                         Text('Audio Equalizer', style: TextStyle(
                           fontSize: 21, fontWeight: FontWeight.bold)),
-                        Text('10-band • native audio processing',
+                        Text('10-band â€¢ native audio processing',
                           style: TextStyle(fontSize: 12, color: Colors.white70)),
                       ],
                     )),
@@ -1433,7 +1433,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             const Text('Adjust the one native audio engine. Your original FLAC files remain unchanged.',
               textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 14),
-            Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones · ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
+            Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones Â· ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
             // Drag the combined pitch slider, double-tap to reset, or use
             // the dedicated precision picker for semitones and cents.
             Semantics(
@@ -1914,7 +1914,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             child: Text(activePlaylist == null
               ? (matches.length == files.length ? '${files.length} songs'
                   : '${matches.length} of ${files.length} songs') :
-              '${activePlaylist!} • ${matches.length} songs',
+              '${activePlaylist!} â€¢ ${matches.length} songs',
               style: const TextStyle(color: Colors.white70)))),
         if (files.isNotEmpty && matches.isEmpty)
           Expanded(child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1940,7 +1940,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   label: const Text('Restore saved AuraLocal backup')),
                 const Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('iOS deletes an app’s private music when you uninstall it.\n'
+                  child: Text('iOS deletes an appâ€™s private music when you uninstall it.\n'
                     'Back up to Files before changing your signing or installation.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
@@ -2015,7 +2015,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         foregroundColor: const Color(0xFFFFB8A5),
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down),
           onPressed: showLibrary),
-        title: const Text('Now Playing'),
+        title: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragStart: (_) => playerDrag = 0,
+          onVerticalDragUpdate: (details) => playerDrag += details.delta.dy,
+          onVerticalDragEnd: finishPlayerDrag,
+          child: const SizedBox(height: 48, child: Align(
+            alignment: Alignment.centerLeft, child: Text('Now Playing')))),
         actions: [
           IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
             color: waveformVisible ? const Color(0xFFFFB8A5) : Colors.white,
@@ -2027,7 +2033,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline), onPressed: importInPlace),
         ],
       ),
-      body: SafeArea(child: LayoutBuilder(builder: (context, viewport) =>
+      body: SafeArea(child: NotificationListener<OverscrollNotification>(
+        onNotification: (notice) {
+          // Pull down from the top of the player to minimize it.
+          if (notice.metrics.pixels <= notice.metrics.minScrollExtent && notice.overscroll < 0) {
+            playerDrag += -notice.overscroll;
+            if (playerDrag > 72) { playerDrag = 0; showLibrary(); }
+          }
+          return false;
+        },
+        child: LayoutBuilder(builder: (context, viewport) =>
         ListView(
           key: const PageStorageKey<String>('now-playing-content'),
           primary: false,
@@ -2077,7 +2092,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               Padding(key: ValueKey('$listeningOutput/$listeningCodec/$sourceLossless'),
                 padding: const EdgeInsets.only(bottom: 5), child: Text(
                 [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
-                  if (sourceLossless) 'Lossless source'].join('  ·  '),
+                  if (sourceLossless) 'Lossless source'].join('  Â·  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 10, color: Color(0xFFFFB8A5))))),
           Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
@@ -2143,7 +2158,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],
-      ))), 
+      )))),
     );
   }
 

@@ -21,7 +21,7 @@ class ArtworkFlipCard extends StatefulWidget {
 
 class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProviderStateMixin {
   late final AnimationController flip = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 1050));
+    vsync: this, duration: const Duration(milliseconds: 520), reverseDuration: const Duration(milliseconds: 310));
   bool editing = false;
   @override
   void dispose() { flip.dispose(); super.dispose(); }
@@ -59,7 +59,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
               decoration: const BoxDecoration(gradient: LinearGradient(
                 colors: [Color(0xFFFFB8A5), Color(0xFFF08078)])),
               child: rear ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Text('ADD METADATA?', style: TextStyle(color: Color(0xFF221A1B),
+                const Text('Add metadata?', style: TextStyle(color: Color(0xFF221A1B),
                   fontSize: 21, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 18),
                 FilledButton(onPressed: () => openEditor(context), child: const Text('Enter manually')),
