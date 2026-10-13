@@ -21,7 +21,7 @@ class ArtworkFlipCard extends StatefulWidget {
 
 class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProviderStateMixin {
   late final AnimationController flip = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 520), reverseDuration: const Duration(milliseconds: 310));
+    vsync: this, duration: const Duration(milliseconds: 760), reverseDuration: const Duration(milliseconds: 610));
   bool editing = false;
   @override
   void dispose() { flip.dispose(); super.dispose(); }
@@ -47,8 +47,8 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
   Widget build(BuildContext context) => AspectRatio(aspectRatio: 1,
     child: AnimatedBuilder(animation: flip, builder: (context, _) {
       // Anticipation, accelerating turn, and soft elastic landing.
-      final t = Curves.easeInOutCubicEmphasized.transform(flip.value);
-      final rotation = math.pi * t + math.sin(flip.value * math.pi * 2) * 0.045;
+      final t = Curves.easeInOutCubic.transform(flip.value);
+      final rotation = math.pi * t;
       final rear = rotation > math.pi / 2;
       return GestureDetector(onTap: toggle,
         child: Transform(transform: Matrix4.identity()..setEntry(3, 2, 0.0012)..rotateY(rotation),

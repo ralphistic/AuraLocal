@@ -72,7 +72,7 @@ final class AuraDspGraph {
         engine.connect(equalizer, to: timePitch, format: nil)
         engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
         let mixer = engine.mainMixerNode
-        mixer.installTap(onBus: 0, bufferSize: 2048, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+        mixer.installTap(onBus: 0, bufferSize: 1024, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, _ in
             guard let self = self, let audio = buffer.floatChannelData,
                   buffer.frameLength > 0 else { return }
             self.waveLock.lock()
@@ -83,7 +83,7 @@ final class AuraDspGraph {
             // The real-time audio callback only copies a short PCM snapshot.
             // Frequency analysis runs off the render thread to avoid glitches.
             let channels = Int(buffer.format.channelCount)
-            let window = min(Int(buffer.frameLength), 2048)
+            let window = min(Int(buffer.frameLength), 1024)
             guard channels > 0, window > 32 else {
                 self.waveLock.lock()
                 self.analysisBusy = false
@@ -135,13 +135,13 @@ final class AuraDspGraph {
             // while drum attacks move the contour distinctly.
             let normalized = Float(min(1, max(0, (db + 62.0) / 54.0)))
             // Exaggerate peaks and preserve quiet valleys; fast attacks, fast decay.
-            target[band] = pow(normalized, 2.6)
+            target[band] = pow(normalized, 1.45)
         }
         waveLock.lock()
         if waveEnabled {
             for i in 0..<bins {
                 let previous = waveValues[i]
-                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 1.0 : 0.88)
+                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 0.72 : 0.45)
             }
         }
         analysisBusy = false

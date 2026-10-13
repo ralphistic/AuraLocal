@@ -19,7 +19,7 @@ require('exportLibraryIndex' in dart and 'restoreLibraryIndex' in dart,
         'Portable index can be exported without copying music')
 require('AspectRatio(aspectRatio: 1' in art and 'SizedBox.square' in dart,
         'Album artwork always occupies a square')
-require('rotateY' in art and 'Curves.easeInOutCubicEmphasized' in art,
+require('rotateY' in art and 'Curves.easeInOutCubic' in art,
         'Album card has animated 3D flip and eased timing')
 require('Enter manually' in art and 'Find online' in art and 'openEditor(context, item)' in art,
         'Missing artwork offers manual and online candidate editing')

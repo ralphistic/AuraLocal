@@ -72,11 +72,11 @@ Future<void> main() async {
         displayMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.2),
         headlineLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.0),
         headlineMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.8),
-        titleLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.65),
+        titleLarge: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.65),
         titleMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.45),
         titleSmall: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.3),
-        bodyLarge: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.35),
-        bodyMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.25),
+        bodyLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.35),
+        bodyMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.25),
         bodySmall: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.15),
         labelLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.35),
         labelMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.2),
@@ -166,7 +166,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   bool pollBusy = false;
   int tick = 0;
   double playerDrag = 0;
-  bool draggingMini = false;
   bool draggingPlayer = false;
   bool dismissingPlayer = false;
   double miniSwipeTravel = 0;
@@ -195,12 +194,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
         final before = previous[i];
-        return before + (target - before) * (target > before ? 1.0 : 0.85);
+        return before + (target - before) * (target > before ? 0.38 : 0.22);
       });
       waveformLevels.value = next;
     });
-    // Timeline and spectrum sampling are distinct from the display's vsync.
-    pollTimer = Timer.periodic(const Duration(milliseconds: 33), (_) => pollNative());
+    // Poll native spectrum up to 60 Hz; vsync ticker renders at device refresh rate.
+    pollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) => pollNative());
   }
 
   @override
@@ -922,53 +921,59 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     }
   }
 
-  void showLibrary() {
-    if (mounted) setState(() {
-      libraryHome = true;
-      playerDrag = 0;
-      draggingPlayer = false;
-      dismissingPlayer = false;
+  void showLibrary() => dismissPlayer();
+
+  // Restore the original magnetic, finger-tracked player animation (431aa9e).
+  void dismissPlayer() {
+    if (libraryHome || dismissingPlayer) return;
+    final height = MediaQuery.sizeOf(context).height;
+    setState(() { dismissingPlayer = true; draggingPlayer = false; playerDrag = height; });
+    Future.delayed(const Duration(milliseconds: 310), () {
+      if (mounted && dismissingPlayer) setState(() {
+        libraryHome = true; playerDrag = 0; dismissingPlayer = false;
+      });
     });
   }
 
-  void dismissPlayer() => showLibrary();
-
   void showPlayer() {
-    if (mounted) setState(() {
-      libraryHome = false;
-      dismissingPlayer = false;
-      playerDrag = 0;
-      draggingPlayer = false;
+    if (!libraryHome) return;
+    final height = MediaQuery.sizeOf(context).height;
+    setState(() {
+      libraryHome = false; dismissingPlayer = false;
+      playerDrag = height; draggingPlayer = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() { draggingPlayer = false; playerDrag = 0; });
     });
   }
 
   void startMiniSwipe() {
     if (!libraryHome) return;
-    setState(() { miniSwipeTravel = 0; draggingMini = true; });
+    miniSwipeTravel = 0;
+    setState(() { libraryHome = false; playerDrag = MediaQuery.sizeOf(context).height; draggingPlayer = true; dismissingPlayer = false; });
   }
 
   void updateMiniSwipe(DragUpdateDetails details) {
-    setState(() { miniSwipeTravel += details.delta.dy; });
+    miniSwipeTravel += details.delta.dy;
+    setState(() => playerDrag = (MediaQuery.sizeOf(context).height + miniSwipeTravel).clamp(0.0, MediaQuery.sizeOf(context).height).toDouble());
   }
 
   void finishMiniSwipe(DragEndDetails details) {
     final rise = -miniSwipeTravel;
-    setState(() => draggingMini = false);
+    // The same player remains visible throughout the upward gesture.
     if (rise > 34 || (details.primaryVelocity ?? 0) < -220) {
-      showPlayer();
+      setState(() { playerDrag = 0; draggingPlayer = false; });
     } else {
-      setState(() => miniSwipeTravel = 0);
+      dismissPlayer();
     }
   }
 
   void finishPlayerDrag(DragEndDetails details) {
     final height = MediaQuery.sizeOf(context).height;
-    final shouldDismiss = playerDrag > height * 0.12 || (details.primaryVelocity ?? 0) > 450;
-    setState(() { draggingPlayer = false; dismissingPlayer = shouldDismiss; playerDrag = shouldDismiss ? height : 0; });
-    if (shouldDismiss) {
-      Future.delayed(const Duration(milliseconds: 250), () {
-        if (mounted && dismissingPlayer) showLibrary();
-      });
+    if (playerDrag > height * 0.12 || (details.primaryVelocity ?? 0) > 450) {
+      dismissPlayer();
+    } else {
+      setState(() { draggingPlayer = false; playerDrag = 0; });
     }
   }
 
@@ -1865,36 +1870,50 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ),
       ]),
       body: SafeArea(child: Column(children: [
-        Padding(padding: const EdgeInsets.all(16), child: TextField(
+        Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 4), child: SizedBox(height: 38, child: TextField(
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          textAlignVertical: TextAlignVertical.center,
           controller: searchController,
           onChanged: (value) { setState(() => query = value); syncQueue(); },
           decoration: InputDecoration(hintText: 'Search songs', prefixIcon: const Icon(Icons.search),
             border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(80)), borderSide: BorderSide.none),
+            isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+            prefixIconConstraints: const BoxConstraints(minWidth: 38, minHeight: 32),
             suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
-        )),
-        SizedBox(height: 52, child: ListView(scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-          ChoiceChip(label: const Text('Library'), selected: activePlaylist == null,
-            onSelected: (_) { setState(() => activePlaylist = null); syncQueue(); }),
-          const SizedBox(width: 8),
-          for (final name in playlists.keys) ...[
-            InputChip(label: Text(name), selected: activePlaylist == name,
-              onSelected: (_) { setState(() => activePlaylist = name); syncQueue(); },
-              onDeleted: () => playlistMenu(name), deleteIcon: const Icon(Icons.more_horiz, size: 18)),
-            const SizedBox(width: 8),
-          ],
-        ])),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
-          ChoiceChip(label: const Text('All songs'), selected: !favoritesOnly,
-            onSelected: (_) { setState(() => favoritesOnly = false); syncQueue(); }),
-          const SizedBox(width: 8),
-          ChoiceChip(label: const Text('Favorites'), selected: favoritesOnly,
-            onSelected: (_) { setState(() => favoritesOnly = true); syncQueue(); }),
+        ))),
+        // Compact library navigation: one menu instead of stacked chip rows.
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Row(children: [
+          PopupMenuButton<String>(
+            tooltip: 'Choose music view',
+            onSelected: (value) {
+              setState(() {
+                if (value == 'all') { activePlaylist = null; favoritesOnly = false; }
+                else if (value == 'favorites') { activePlaylist = null; favoritesOnly = true; }
+                else { activePlaylist = value; favoritesOnly = false; }
+              });
+              syncQueue();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'all', child: Text('All songs')),
+              const PopupMenuItem(value: 'favorites', child: Text('Favorites')),
+              for (final name in playlists.keys) PopupMenuItem(value: name, child: Text(name)),
+            ],
+            child: Padding(padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(activePlaylist ?? (favoritesOnly ? 'Favorites' : 'All songs'),
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                const SizedBox(width: 3), const Icon(Icons.keyboard_arrow_down, size: 18),
+              ])),
+          ),
+          if (activePlaylist != null) IconButton(tooltip: 'Playlist options',
+            visualDensity: VisualDensity.compact, icon: const Icon(Icons.more_horiz, size: 18),
+            onPressed: () => playlistMenu(activePlaylist!)),
           const Spacer(),
+          Text('${matches.length} songs', style: const TextStyle(color: Colors.white70, fontSize: 12)),
           PopupMenuButton<String>(
             tooltip: 'Sort tracks',
-            icon: const Icon(Icons.filter_list),
+            icon: const Icon(Icons.sort, size: 20),
             onSelected: chooseLibrarySort,
             itemBuilder: (_) => [
               for (final item in [
@@ -1914,13 +1933,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ],
           ),
         ])),
-        Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 6),
-          child: Align(alignment: Alignment.centerLeft,
-            child: Text(activePlaylist == null
-              ? (matches.length == files.length ? '${files.length} songs'
-                  : '${matches.length} of ${files.length} songs') :
-              '${activePlaylist!} â€¢ ${matches.length} songs',
-              style: const TextStyle(color: Colors.white70)))),
         if (files.isNotEmpty && matches.isEmpty)
           Expanded(child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.filter_alt_off, size: 44),
@@ -1957,7 +1969,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               final groupStart = sortMode == 'fileType' && extension != previousExtension;
               return Column(mainAxisSize: MainAxisSize.min, children: [
                 if (groupStart) Container(width: double.infinity, padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                  color: const Color(0xFFF08078), child: Text('$extension FILES',
+                  color: const Color(0xFFF08078), child: Text('$extension files',
                     style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Colors.black))),
                 ListTile(
                 tileColor: index == currentIndex ? const Color(0x665A3A18) : null,
@@ -1988,8 +2000,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragUpdate: updateMiniSwipe,
           onVerticalDragEnd: finishMiniSwipe,
           child: AnimatedContainer(
-            transform: Matrix4.translationValues(0, math.min(0.0, miniSwipeTravel), 0),
-            duration: draggingMini ? Duration.zero : const Duration(milliseconds: 240),
+            duration: const Duration(milliseconds: 240),
             color: const Color(0xFF5D3031),
             child: ListTile(
             leading: const Icon(Icons.graphic_eq, color: Color(0xFFFFB8A5)),
@@ -2021,13 +2032,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         foregroundColor: const Color(0xFFFFB8A5),
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down),
           onPressed: showLibrary),
-        title: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onVerticalDragStart: (_) => setState(() { playerDrag = 0; draggingPlayer = true; }),
-          onVerticalDragUpdate: (details) => setState(() => playerDrag = math.max(0, playerDrag + details.delta.dy)),
-          onVerticalDragEnd: finishPlayerDrag,
-          child: const SizedBox(height: 48, child: Align(
-            alignment: Alignment.centerLeft, child: Text('Now Playing')))),
+        title: const Text('Now Playing'),
         actions: [
           IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
             color: waveformVisible ? const Color(0xFFFFB8A5) : Colors.white,
@@ -2039,22 +2044,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline), onPressed: importInPlace),
         ],
       ),
-      body: SafeArea(child: NotificationListener<ScrollEndNotification>(
-        onNotification: (_) {
-          if (draggingPlayer && playerDrag > 0) {
-            finishPlayerDrag(DragEndDetails(primaryVelocity: 0));
-          }
-          return false;
-        },
-        child: NotificationListener<OverscrollNotification>(
-        onNotification: (notice) {
-          // Pull down from the top of the player to minimize it.
-          if (notice.metrics.pixels <= notice.metrics.minScrollExtent && notice.overscroll < 0) {
-            setState(() { draggingPlayer = true; playerDrag = math.max(0, playerDrag - notice.overscroll); });
-          }
-          return false;
-        },
-        child: LayoutBuilder(builder: (context, viewport) =>
+      body: SafeArea(child: LayoutBuilder(builder: (context, viewport) =>
         ListView(
           key: const PageStorageKey<String>('now-playing-content'),
           primary: false,
@@ -2170,7 +2160,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],
-      ))))),
+      ))),
     );
   }
 
@@ -2183,11 +2173,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     return Stack(children: [
       buildLibrary(),
       if (!libraryHome)
-        AnimatedSlide(
-          duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 250),
+        AnimatedContainer(
+          duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
           curve: Curves.easeOutCubic,
-          offset: Offset(0, (playerDrag / height).clamp(0.0, 1.0)),
-          child: buildPlayer(),
+          transform: Matrix4.translationValues(0, playerDrag.clamp(0.0, height), 0),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
+            onVerticalDragUpdate: (details) => setState(() => playerDrag = (playerDrag + details.delta.dy).clamp(0.0, height).toDouble()),
+            onVerticalDragEnd: finishPlayerDrag,
+            onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
+            child: buildPlayer(),
+          ),
         ),
     ]);
   }
@@ -2205,13 +2202,13 @@ class LiveWaveformPainter extends CustomPainter {
     // One centered oscilloscope-like line; movement follows the native
     // post-EQ audio tap rather than showing a collection of vertical bars.
     final baseline = size.height * 0.5;
-    final span = size.height * 0.32;
+    final span = size.height * 0.47;
     final points = <Offset>[
       for (var i = 0; i < samples.length; i++)
         Offset(
           size.width * i / (samples.length - 1),
-          baseline + math.sin(i * math.pi * 0.54) *
-              samples[i].clamp(0.0, 1.0).toDouble() * span,
+          baseline + math.sin(i * math.pi * 0.58) *
+              math.pow(samples[i].clamp(0.0, 1.0), 0.65).toDouble() * span,
         ),
     ];
     final curve = Path()..moveTo(points.first.dx, points.first.dy);
