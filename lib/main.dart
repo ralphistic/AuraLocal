@@ -12,6 +12,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'metadata_art.dart';
 
+// Replaced with the GitHub Actions run number before every iOS build.
+const String auraBuildNumber = 'DEV';
+
 /// Scroll long titles smoothly without changing button placement.
 class ScrollingTrackTitle extends StatefulWidget {
   final String text;
@@ -191,7 +194,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
         final before = previous[i];
-        return before + (target - before) * (target > before ? 0.38 : 0.16);
+        return before + (target - before) * (target > before ? 0.86 : 0.42);
       });
       waveformLevels.value = next;
     });
@@ -1822,6 +1825,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             }
           },
           itemBuilder: (_) => [
+            const PopupMenuItem<String>(enabled: false, value: 'version',
+              child: ListTile(leading: Icon(Icons.info_outline),
+                title: Text('AuraLocal Build $auraBuildNumber'))),
             const PopupMenuItem(value: 'clearList',
               child: ListTile(leading: Icon(Icons.playlist_remove),
                 title: Text('Clear remembered song list'),
@@ -2043,7 +2049,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }))),
           const SizedBox(height: 22),
           Row(children: [
-            Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFFFFB8A5)))),
+            Expanded(child: SizedBox(height: 38, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFFFFB8A5))))),
             if (currentIndex >= 0 && currentIndex < files.length)
               IconButton(tooltip: 'Favorite',
                 onPressed: () => toggleFavorite(files[currentIndex]),
@@ -2146,7 +2152,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // The full-screen player must never be translated beyond the viewport.
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
-    return libraryHome ? buildLibrary() : buildPlayer();
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      reverseDuration: const Duration(milliseconds: 230),
+      transitionBuilder: (child, animation) => SlideTransition(
+        position: Tween<Offset>(
+          begin: child.key == const ValueKey('player') ? const Offset(0, 0.12) : const Offset(0, -0.05),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+        child: FadeTransition(opacity: animation, child: child)),
+      child: KeyedSubtree(key: ValueKey(libraryHome ? 'library' : 'player'),
+        child: libraryHome ? buildLibrary() : buildPlayer()),
+    );
   }
 }
 

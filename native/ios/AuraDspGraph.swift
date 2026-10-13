@@ -67,6 +67,7 @@ final class AuraDspGraph {
         timePitch.rate = 1
         timePitch.pitch = 0
         timePitch.overlap = 8
+        timePitch.bypass = true // Neutral playback avoids stale stretch grains.
         engine.connect(source, to: equalizer, format: nil)
         engine.connect(equalizer, to: timePitch, format: nil)
         engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
@@ -132,14 +133,14 @@ final class AuraDspGraph {
             let db = 20.0 * log10(max(0.000001, Double(weighted)))
             // Wider visible transients: low-level detail remains visible,
             // while drum attacks move the contour distinctly.
-            let normalized = Float(min(1, max(0, (db + 57.0) / 49.0)))
-            target[band] = pow(normalized, 1.35)
+            let normalized = Float(min(1, max(0, (db + 52.0) / 42.0)))
+            target[band] = pow(normalized, 1.7)
         }
         waveLock.lock()
         if waveEnabled {
             for i in 0..<bins {
                 let previous = waveValues[i]
-                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 0.94 : 0.34)
+                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 1.0 : 0.62)
             }
         }
         analysisBusy = false
@@ -280,8 +281,13 @@ final class AuraDspGraph {
         // player node, pause the engine, or reset the time-stretcher on drag:
         // doing so interrupts its scheduled buffers and causes audible clicks.
         let playbackPosition = positionSeconds
+        let neutral = abs(tempo - 1) < 0.0001 && abs(cents) < 0.01
+        if !neutral { timePitch.bypass = false }
         timePitch.rate = tempo
         timePitch.pitch = cents
+        // When tempo and pitch return to normal, bypass the stretcher so its
+        // previous processed grains cannot continue colouring neutral audio.
+        if neutral { timePitch.bypass = true }
         appliedRate = tempo
         appliedPitchCents = cents
         anchorSeconds = playbackPosition

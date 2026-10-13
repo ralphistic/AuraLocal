@@ -39,6 +39,16 @@ jobs:
         run: python3 native/tests/check_bridge_contract.py
       - name: Verify library and metadata contract
         run: python3 native/tests/check_library_contract.py
+      - name: Stamp visible app build number
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/main.dart')
+          s = p.read_text()
+          old = "const String auraBuildNumber = 'DEV';"
+          assert s.count(old) == 1, 'Missing build-number marker'
+          p.write_text(s.replace(old, "const String auraBuildNumber = '${{ github.run_number }}';"))
+          PY
       - name: Generate iOS project and dependencies
         run: |
           flutter create --platforms=ios --project-name auralocal .
