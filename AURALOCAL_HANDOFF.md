@@ -1,4 +1,4 @@
-﻿# AuraLocal — authoritative project handoff and feature contract
+# AuraLocal — authoritative project handoff and feature contract
 Last updated: 2026-10-13. READ THIS FILE BEFORE EVERY CHANGE, INCLUDING NEW CHATS.
 Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workflows/ios.yml; GitHub Actions run number is the build number. Release URL pattern: https://github.com/ralphistic/AuraLocal/releases/download/build-N/AuraLocal-build-N-unsigned.ipa (only works after successful CI).
 ## Must preserve
@@ -25,3 +25,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 ## Automatic change history
 - 2026-10-13: Added repository-wide AGENTS.md instructions, pre-commit automatic history updates, and CI enforcement of same-commit handoff changes. Never remove these safeguards silently.
 - 2026-10-13: Updated Flutter artwork regression test to expect sentence-case Add metadata? label, matching the requested UI. Do not revert the app label to uppercase just to pass tests.
+- 2026-10-13: Restored interactive thumb-following vertical Now Playing dismissal using Stack plus AnimatedSlide; drag title downward or pull down from scroll top; player follows drag, then animates closed or snaps back. Mini-player moves with upward swipe. Underlying library stays rendered to avoid blank overlay. Corrected mojibake in audio format separator (use actual bullet, not misdecoded UTF-8). Preserve interactive dragging and avoid reverting to switch-only transitions. Pending iPhone gesture validation.
+
+- 2026-10-13 09:29 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.

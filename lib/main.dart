@@ -166,6 +166,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   bool pollBusy = false;
   int tick = 0;
   double playerDrag = 0;
+  bool draggingMini = false;
   bool draggingPlayer = false;
   bool dismissingPlayer = false;
   double miniSwipeTravel = 0;
@@ -943,27 +944,31 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   void startMiniSwipe() {
     if (!libraryHome) return;
-    miniSwipeTravel = 0;
+    setState(() { miniSwipeTravel = 0; draggingMini = true; });
   }
 
   void updateMiniSwipe(DragUpdateDetails details) {
-    miniSwipeTravel += details.delta.dy;
+    setState(() { miniSwipeTravel += details.delta.dy; });
   }
 
   void finishMiniSwipe(DragEndDetails details) {
     final rise = -miniSwipeTravel;
+    setState(() => draggingMini = false);
     if (rise > 34 || (details.primaryVelocity ?? 0) < -220) {
       showPlayer();
+    } else {
+      setState(() => miniSwipeTravel = 0);
     }
   }
 
   void finishPlayerDrag(DragEndDetails details) {
-    draggingPlayer = false;
     final height = MediaQuery.sizeOf(context).height;
-    if (playerDrag > height * 0.12 || (details.primaryVelocity ?? 0) > 450) {
-      dismissPlayer();
-    } else {
-      setState(() => playerDrag = 0);
+    final shouldDismiss = playerDrag > height * 0.12 || (details.primaryVelocity ?? 0) > 450;
+    setState(() { draggingPlayer = false; dismissingPlayer = shouldDismiss; playerDrag = shouldDismiss ? height : 0; });
+    if (shouldDismiss) {
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted && dismissingPlayer) showLibrary();
+      });
     }
   }
 
@@ -1983,7 +1988,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragUpdate: updateMiniSwipe,
           onVerticalDragEnd: finishMiniSwipe,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
+            transform: Matrix4.translationValues(0, math.min(0.0, miniSwipeTravel), 0),
+            duration: draggingMini ? Duration.zero : const Duration(milliseconds: 240),
             color: const Color(0xFF5D3031),
             child: ListTile(
             leading: const Icon(Icons.graphic_eq, color: Color(0xFFFFB8A5)),
@@ -2017,8 +2023,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onPressed: showLibrary),
         title: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onVerticalDragStart: (_) => playerDrag = 0,
-          onVerticalDragUpdate: (details) => playerDrag += details.delta.dy,
+          onVerticalDragStart: (_) => setState(() { playerDrag = 0; draggingPlayer = true; }),
+          onVerticalDragUpdate: (details) => setState(() => playerDrag = math.max(0, playerDrag + details.delta.dy)),
           onVerticalDragEnd: finishPlayerDrag,
           child: const SizedBox(height: 48, child: Align(
             alignment: Alignment.centerLeft, child: Text('Now Playing')))),
@@ -2033,12 +2039,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline), onPressed: importInPlace),
         ],
       ),
-      body: SafeArea(child: NotificationListener<OverscrollNotification>(
+      body: SafeArea(child: NotificationListener<ScrollEndNotification>(
+        onNotification: (_) {
+          if (draggingPlayer && playerDrag > 0) {
+            finishPlayerDrag(DragEndDetails(primaryVelocity: 0));
+          }
+          return false;
+        },
+        child: NotificationListener<OverscrollNotification>(
         onNotification: (notice) {
           // Pull down from the top of the player to minimize it.
           if (notice.metrics.pixels <= notice.metrics.minScrollExtent && notice.overscroll < 0) {
-            playerDrag += -notice.overscroll;
-            if (playerDrag > 72) { playerDrag = 0; showLibrary(); }
+            setState(() { draggingPlayer = true; playerDrag = math.max(0, playerDrag - notice.overscroll); });
           }
           return false;
         },
@@ -2092,7 +2104,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               Padding(key: ValueKey('$listeningOutput/$listeningCodec/$sourceLossless'),
                 padding: const EdgeInsets.only(bottom: 5), child: Text(
                 [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
-                  if (sourceLossless) 'Lossless source'].join('  Â·  '),
+                  if (sourceLossless) 'Lossless source'].join('  •  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 10, color: Color(0xFFFFB8A5))))),
           Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
@@ -2158,7 +2170,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],
-      )))),
+      ))))),
     );
   }
 
@@ -2167,18 +2179,17 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // The full-screen player must never be translated beyond the viewport.
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 280),
-      reverseDuration: const Duration(milliseconds: 230),
-      transitionBuilder: (child, animation) => SlideTransition(
-        position: Tween<Offset>(
-          begin: child.key == const ValueKey('player') ? const Offset(0, 0.12) : const Offset(0, -0.05),
-          end: Offset.zero,
-        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-        child: FadeTransition(opacity: animation, child: child)),
-      child: KeyedSubtree(key: ValueKey(libraryHome ? 'library' : 'player'),
-        child: libraryHome ? buildLibrary() : buildPlayer()),
-    );
+    final height = math.max(1.0, MediaQuery.sizeOf(context).height);
+    return Stack(children: [
+      buildLibrary(),
+      if (!libraryHome)
+        AnimatedSlide(
+          duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          offset: Offset(0, (playerDrag / height).clamp(0.0, 1.0)),
+          child: buildPlayer(),
+        ),
+    ]);
   }
 }
 
