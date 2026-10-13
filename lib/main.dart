@@ -30,9 +30,11 @@ class _ScrollingTrackTitleState extends State<ScrollingTrackTitle> with SingleTi
   }
   @override
   Widget build(BuildContext context) => LayoutBuilder(builder: (context, bounds) {
-    final style = widget.style;
+    // Measure with the same inherited Josefin font as the rendered Text.
+    final style = DefaultTextStyle.of(context).style.merge(widget.style);
     final painter = TextPainter(text: TextSpan(text: widget.text, style: style),
-      textDirection: TextDirection.ltr, maxLines: 1)..layout();
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context), maxLines: 1)..layout();
     final textWidth = painter.width;
     if (textWidth <= bounds.maxWidth || !bounds.maxWidth.isFinite) {
       motion.stop();
@@ -148,6 +150,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Timer? dspSaveDebounce;
   Offset? pitchTouchStart;
   bool pitchTouchMoved = false;
+  int lastPitchTapAt = 0;
+  int lastTempoTapAt = 0;
+  Offset? tempoTouchStart;
+  bool tempoTouchMoved = false;
 
   @override
   void initState() {
@@ -944,7 +950,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showPitchWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
+    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF352729),
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 340,
         child: Column(children: [
           Row(children: [
@@ -984,7 +990,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showTempoWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF343438),
+    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF352729),
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 330,
         child: Column(children: [
           Row(children: [
@@ -1263,10 +1269,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 14),
             Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones · ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
-            // One combined pitch control. Tap anywhere on it to open BOTH
-            // precise iOS picker wheels; a second fine-pitch slider is gone.
+            // Drag the combined pitch slider, double-tap to reset, or use
+            // the dedicated precision picker for semitones and cents.
             Semantics(
-              label: 'Pitch slider. Tap to open semitone and cent wheels; drag to change pitch.',
+              label: 'Pitch slider. Drag to change pitch; double tap to reset. Use Fine tune for semitones and cents.',
               child: GestureDetector(
                 onDoubleTapDown: (_) { refresh(() { pitchSemitones = 0; pitchCents = 0; }); updateNativePitchTempo(); },
                 child: Listener(
@@ -1281,12 +1287,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   }
                 },
                 onPointerUp: (event) {
-                  final wasTap = !pitchTouchMoved && pitchTouchStart != null &&
-                      (event.position - pitchTouchStart!).distance < 9;
+                  final now = DateTime.now().millisecondsSinceEpoch;
+                  final width = MediaQuery.sizeOf(context).width - 36;
+                  final pitch = ((pitchSemitones * 100 + pitchCents) / 100).clamp(-12.0, 12.0);
+                  final thumbX = 24 + (pitch + 12) / 24 * (width - 48);
+                  if (!pitchTouchMoved && (event.localPosition.dx - thumbX).abs() < 32) {
+                    if (now - lastPitchTapAt < 340) {
+                      refresh(() { pitchSemitones = 0; pitchCents = 0; });
+                      updateNativePitchTempo();
+                      lastPitchTapAt = 0;
+                    } else { lastPitchTapAt = now; }
+                  }
                   pitchTouchStart = null;
-                  // The dedicated Fine tune button opens the wheels; single
-                  // taps here must not interrupt a double-tap reset.
-                  if (wasTap) {}
                 },
                 onPointerCancel: (_) => pitchTouchStart = null,
                 child: Slider(
@@ -1315,7 +1327,25 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ),
             TextButton(onPressed: () => showTempoWheel(refresh),
               child: Text('Tempo: ${(playbackSpeed * 100).round()}%')),
-            GestureDetector(onDoubleTapDown: (_) { refresh(() => playbackSpeed = 1); updateNativePitchTempo(); },
+            Listener(
+              onPointerDown: (event) { tempoTouchStart = event.position; tempoTouchMoved = false; },
+              onPointerMove: (event) {
+                if (tempoTouchStart != null && (event.position - tempoTouchStart!).distance > 9) {
+                  tempoTouchMoved = true;
+                }
+              },
+              onPointerUp: (event) {
+                final now = DateTime.now().millisecondsSinceEpoch;
+                final width = MediaQuery.sizeOf(context).width - 36;
+                final thumbX = 24 + (playbackSpeed - 0.5) / 1.5 * (width - 48);
+                if (!tempoTouchMoved && (event.localPosition.dx - thumbX).abs() < 32) {
+                  if (now - lastTempoTapAt < 340) {
+                    refresh(() => playbackSpeed = 1);
+                    updateNativePitchTempo();
+                    lastTempoTapAt = 0;
+                  } else { lastTempoTapAt = now; }
+                }
+              },
               child: Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
                 onChanged: (value) { refresh(() => playbackSpeed = value); setState(() {}); scheduleNativePitchTempoUpdate(); },
                 onChangeEnd: (_) => updateNativePitchTempo())),
@@ -1348,6 +1378,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         }
       }
       await saveLibrary();
+      if (sortMode == 'length') await syncQueue();
       if (mounted) setState(() {});
     } catch (_) {
       // Older build or an unreadable format: leave its length unknown.

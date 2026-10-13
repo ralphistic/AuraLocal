@@ -52,14 +52,21 @@ require("Goertzel" in graph and "analysisQueue" in graph and "spectrumTicker" in
         "Duration(milliseconds: 33)" in dart,
         "Live equalizer-style frequency analyzer with display-vsync smoothing")
 require(dart.count("Slider(value: pitchCents") == 0 and
-        "Pitch slider. Tap to open semitone and cent wheels" in dart,
-        "Single combined pitch slider opens both picker wheels")
+        "Pitch slider. Drag to change pitch; double tap to reset" in dart,
+        "Combined pitch slider supports drag and double-tap reset")
 
 require("timePitch.overlap = 8" in graph and
         "timePitch.rate = tempo" in graph and "timePitch.pitch = cents" in graph and
         "timePitch.reset()" not in graph and
         "source.stop()" not in graph.split("func setTimePitch(")[1],
         "Pitch and tempo update in-place without stopping or resetting the audio graph")
+require("orderedTrackIndices()" in dart and "queuedPaths = ordered" in dart and
+        "return (proposed % queue.count + queue.count) % queue.count" in bridge,
+        "Next/previous follow sorted library queue and wrap at both ends")
+require("songDSP" in dart and "globalDSP" in dart and "loadSongDSP" in dart,
+        "Per-song pitch and tempo persist with optional global mode")
+require("DropdownButtonFormField<String>" in dart and "onDoubleTapDown" in dart,
+        "EQ preset dropdown and double-tap reset controls are available")
 require("isSameAudio" in dart and "originalNames" in dart and
         "if (duplicate) continue;" in dart,
         "Repeated audio imports preserve original track labels")

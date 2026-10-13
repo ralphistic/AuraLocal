@@ -150,7 +150,8 @@ final class AuraPitchBridge {
                         throw self.argumentError("Missing tempo or cents")
                     }
                     try self.graph.setTimePitch(tempo: tempo, semitones: cents / 100)
-                    self.updateNowPlaying(force: true)
+                    // Avoid hammering lock-screen metadata during fast drags.
+                    self.updateNowPlaying(force: false)
                     result(true)
                 case "setEQ":
                     guard let args = call.arguments as? [String: Any],
