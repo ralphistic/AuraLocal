@@ -1805,7 +1805,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           tooltip: 'Library backup and restore',
           icon: const Icon(Icons.more_vert),
           onSelected: (value) {
-            if (value == 'copyImport') {
+            if (value == 'linkImport') {
+              importInPlace();
+            } else if (value == 'copyImport') {
               import();
             } else if (value == 'indexExport') {
               exportLibraryIndex();
@@ -1824,6 +1826,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: ListTile(leading: Icon(Icons.playlist_remove),
                 title: Text('Clear remembered song list'),
                 subtitle: Text('Keep original files; start with a clean list'))),
+            const PopupMenuItem(value: 'linkImport',
+              child: ListTile(leading: Icon(Icons.link),
+                title: Text('Link originals from Files'),
+                subtitle: Text('No duplicate audio copies'))),
             const PopupMenuItem(value: 'copyImport',
               child: ListTile(leading: Icon(Icons.file_copy_outlined),
                 title: Text('Copy music into app'),
@@ -2014,11 +2020,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline), onPressed: importInPlace),
         ],
       ),
-      body: SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(22, 6, 22, 14),
-        child: Column(children: [
-          const Spacer(),
-          Expanded(flex: 5, child: Center(child: LayoutBuilder(builder: (_, bounds) {
-            final side = math.min(bounds.maxWidth, bounds.maxHeight);
+      body: SafeArea(child: LayoutBuilder(builder: (context, viewport) =>
+        SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: Padding(padding: const EdgeInsets.fromLTRB(22, 6, 22, 14),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 12),
+          SizedBox(height: math.min(viewport.maxHeight * 0.43, 340),
+            child: Center(child: LayoutBuilder(builder: (_, bounds) {
+            final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
                 color: Color(0xFFF08078), child: Icon(Icons.music_note, size: 100)));
@@ -2123,9 +2133,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune),
             label: const Text('Pitch and tempo')),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
-          const Spacer(),
+          const SizedBox(height: 22),
         ]),
-      )),
+      ))))),
     );
   }
 
