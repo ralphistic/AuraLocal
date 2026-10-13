@@ -69,7 +69,12 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
     final artwork = widget.metadata['artworkUrl'] ?? '';
     final localArtwork = widget.metadata['artworkData'] ?? '';
     return Stack(fit: StackFit.expand, children: [
-      if (localArtwork.isNotEmpty) Image.memory(base64Decode(localArtwork), fit: BoxFit.cover)
+      if (localArtwork.isNotEmpty) Builder(builder: (_) {
+        try {
+          return Image.memory(base64Decode(localArtwork), fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _generic());
+        } catch (_) { return _generic(); }
+      })
       else if (artwork.isNotEmpty) Image.network(artwork, fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => widget.embeddedArtwork == null
           ? _generic() : Image.memory(widget.embeddedArtwork!, fit: BoxFit.cover))

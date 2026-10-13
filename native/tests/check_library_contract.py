@@ -27,5 +27,10 @@ require(all(k in art for k in ['trackNumber','releaseDate','genre','album','arti
         'Full editable metadata fields')
 require('trackMetadata' in dart and 'saveTrackMetadata' in dart,
         'Metadata saved in persistent library index')
+restore=dart.split('Future<void> restoreLibrary() async {',1)[1].split('Future<bool> isSameAudio',1)[0]
+require('hideDuplicateLibraryEntries()' not in restore,
+        'Startup never performs destructive full-library duplicate scans')
+require("manifest.path + '.backup'" in dart and 'pending.rename(manifest.path)' in dart,
+        'Library manifest writes preserve a recoverable previous index')
 require('embeddedArtwork' in dart and 'embeddedArtwork' in (root/'native/ios/AuraPitchBridge.swift').read_text(),
         'Native embedded album art is inspected before generic artwork')

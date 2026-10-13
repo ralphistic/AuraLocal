@@ -304,6 +304,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     });
     final pending = File(manifest.path + '.pending');
     await pending.writeAsString(content, flush: true);
+    // Retain the previous good index so a failed or interrupted write cannot
+    // make the entire library disappear on the next launch.
+    if (await manifest.exists()) {
+      await manifest.copy(manifest.path + '.backup');
+    }
     await pending.rename(manifest.path);
   }
 
@@ -391,6 +396,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Future<int> hideDuplicateLibraryEntries() async {
     final lengths = <int, List<String>>{};
     final duplicates = <String, String>{};
+    // This is an explicit maintenance operation, never called automatically.
+    // Preserve original file references; do not remove items merely because
+    // two different files have the same title or filename.
     for (final path in List<String>.of(files)) {
       final file = File(path);
       if (!await file.exists()) continue;
@@ -434,7 +442,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         musicDir.path + '/' + stored.replaceAll(String.fromCharCode(92), '/').split('/').last;
       final manifest = await libraryManifest();
       if (await manifest.exists()) {
-        final decoded = jsonDecode(await manifest.readAsString());
+        dynamic decoded;
+        try {
+          decoded = jsonDecode(await manifest.readAsString());
+          if (decoded is! Map && decoded is! List) throw const FormatException('Invalid library');
+          if (decoded is Map && decoded['files'] is! List) throw const FormatException('Missing songs');
+        } catch (_) {
+          final backup = File(manifest.path + '.backup');
+          if (!await backup.exists()) rethrow;
+          decoded = jsonDecode(await backup.readAsString());
+        }
         final saved = (decoded is List ? decoded : decoded['files'] as List).cast<String>();
         if (decoded is Map) {
           if (decoded['favorites'] is List) favorites.addAll((decoded['favorites'] as List).whereType<String>());
@@ -593,7 +610,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }
         }
       }
-      await hideDuplicateLibraryEntries();
+      // Never scan entire audio files or mutate the library during startup.
+      // Large libraries can otherwise stall the UI and discard references.
+      final uniquePaths = files.toSet().toList(growable: false);
+      files..clear()..addAll(uniquePaths);
       await syncQueue();
       await updateNativePitchTempo();
       await applyNativeEQ();
@@ -749,7 +769,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       }
       if (imported == 0 && skipped == 0) throw Exception('No accessible audio files returned');
       if (imported > 0) {
-        await hideDuplicateLibraryEntries();
+        // Import already checks exact audio duplicates. Do not run a second
+        // destructive full-library deduplication during an active session.
         await syncQueue();
       }
       await saveLibrary();
@@ -1764,7 +1785,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           tooltip: 'Library backup and restore',
           icon: const Icon(Icons.more_vert),
           onSelected: (value) {
-            if (value == 'indexExport') {
+            if (value == 'copyImport') {
+              import();
+            } else if (value == 'indexExport') {
               exportLibraryIndex();
             } else if (value == 'indexRestore') {
               restoreLibraryIndex();
@@ -1775,6 +1798,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             }
           },
           itemBuilder: (_) => [
+            const PopupMenuItem(value: 'copyImport',
+              child: ListTile(leading: Icon(Icons.file_copy_outlined),
+                title: Text('Copy music into app'),
+                subtitle: Text('Optional offline copies'))),
             const PopupMenuItem(value: 'indexExport',
               child: ListTile(leading: Icon(Icons.save_alt),
                 title: Text('Export library index (no audio)'),
