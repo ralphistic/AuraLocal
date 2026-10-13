@@ -1647,9 +1647,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             duration: const Duration(milliseconds: 240),
             color: const Color(0xFF9E381F),
             child: ListTile(
-            leading: const Icon(Icons.graphic_eq, color: const Color(0xFFF4D653)),
+            leading: const Icon(Icons.graphic_eq, color: Color(0xFFF4D653)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
-              style: const TextStyle(fontWeight: FontWeight.w600)),
             onTap: showPlayer,
             trailing: IconButton(
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 180),
