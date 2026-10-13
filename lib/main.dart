@@ -63,6 +63,21 @@ Future<void> main() async {
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       fontFamily: 'Josefin',
+      // Tighter, more substantial 1970s-inspired typography throughout.
+      textTheme: const TextTheme(
+        displayLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.6),
+        displayMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.2),
+        headlineLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.0),
+        headlineMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.8),
+        titleLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.65),
+        titleMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.45),
+        titleSmall: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.3),
+        bodyLarge: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.35),
+        bodyMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.25),
+        bodySmall: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.15),
+        labelLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.35),
+        labelMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.2),
+      ),
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF221A1B),
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFF08078), brightness: Brightness.dark),
@@ -709,12 +724,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Future<void> importInPlace() async {
     try {
       final picked = await fileReferences.invokeListMethod<dynamic>('pickInPlace');
-      if (picked == null || picked.isEmpty) return;
+      if (picked == null) return;
+      if (picked.isEmpty) {
+        if (mounted) setState(() => error = 'Files returned no songs. Try Copy music into app from the menu.');
+        return;
+      }
       var added = 0;
       for (final raw in picked) {
         if (raw is! Map || raw['path'] is! String) continue;
         final path = raw['path'] as String;
-        if (!await File(path).exists() || files.contains(path)) continue;
+        // File-provider URLs may be accessible through an open security scope
+        // even when Dart's immediate exists() check races provider hydration.
+        if (files.contains(path)) continue;
         // Do not make a second audio copy; keep the Files provider's URL.
         files.add(path);
         final identity = manifestTrackKey(path);
@@ -729,6 +750,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         added++;
       }
       if (added > 0) {
+        if (mounted) setState(() => error = null);
         await syncQueue();
         await saveLibrary();
         await loadMissingDurations();

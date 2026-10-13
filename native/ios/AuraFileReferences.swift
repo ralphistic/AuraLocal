@@ -60,7 +60,9 @@ final class AuraFileReferences: NSObject, UIDocumentPickerDelegate {
         var stored = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: String] ?? [:]
         var picked: [[String: String]] = []
         for url in urls {
-            guard url.startAccessingSecurityScopedResource() else { continue }
+            // Some local Files URLs are readable without a security-scope token.
+            // A false return does not mean the user cancelled selection.
+            _ = url.startAccessingSecurityScopedResource()
             let path = url.path
             granted[path] = url
             do {
@@ -84,8 +86,8 @@ final class AuraFileReferences: NSObject, UIDocumentPickerDelegate {
             guard let data = Data(base64Encoded: encoded) else { continue }
             var stale = false
             guard let url = try? URL(resolvingBookmarkData: data, options: [],
-                                     relativeTo: nil, bookmarkDataIsStale: &stale),
-                  url.startAccessingSecurityScopedResource() else { continue }
+                                     relativeTo: nil, bookmarkDataIsStale: &stale) else { continue }
+            _ = url.startAccessingSecurityScopedResource()
             granted[url.path] = url
             if FileManager.default.fileExists(atPath: url.path) {
                 recovered.append(["path": url.path, "name": url.lastPathComponent,
