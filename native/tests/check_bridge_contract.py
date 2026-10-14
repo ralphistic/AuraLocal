@@ -99,11 +99,22 @@ require("ui.ImageFilter.blur(sigmaX: strength * 7" in dart and
         "TweenAnimationBuilder<double>" in dart,
         "Backdrop blur grows smoothly with player expansion")
 
-require("class _PixelDitherSeam extends CustomPainter" in dart and
+require("class _ColorTileBorder extends CustomPainter" in dart and
         "GoogleLetterPalette.cream" in dart,
-        "16-bit pixel dither seam and cream background available")
+        "Single-row repeating Google-color tile divider and cream background available")
 require("Icons.link_off_rounded" in dart and "Icons.link_rounded" in dart and
         "Future<void> showThreePrecisionWheels" in dart,
         "Pitch and tempo link state preserved with three-wheel precision controls")
 require("seekSeconds(-10)" not in dart and "seekSeconds(10)" not in dart,
         "All double-tap jump-forward and jump-back seek gestures removed")
+
+require("const _TuningForkIcon()" in dart and
+        "class _TuningForkPainter extends CustomPainter" in dart,
+        "Precision control displays a true tuning fork shape")
+require("if (!linkedPitchTempo) ...[" in dart and
+        "const Text('Pitch'" in dart,
+        "Linked pitch/tempo collapses the separate pitch slider")
+require("Text('Cents')" in dart and "Text('Semitones')" in dart,
+        "Precision tuning offers four independent tempo semitone cent and preamp wheels")
+require("child: Text(displayName(files[index]), maxLines: 1" in dart,
+        "Every track-list song title remains on exactly one line")

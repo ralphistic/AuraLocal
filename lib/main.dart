@@ -87,7 +87,14 @@ Future<void> main() async {
       scaffoldBackgroundColor: GoogleLetterPalette.cream,
       colorScheme: ColorScheme.fromSeed(seedColor: GoogleLetterPalette.red,
         brightness: Brightness.light, surface: GoogleLetterPalette.cream),
-      appBarTheme: const AppBarTheme(backgroundColor: GoogleLetterPalette.blue, foregroundColor: Color(0xFF161515)),
+      textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(
+        foregroundColor: GoogleLetterPalette.creamText)),
+      listTileTheme: const ListTileThemeData(textColor: GoogleLetterPalette.creamText,
+        iconColor: GoogleLetterPalette.creamText),
+      appBarTheme: const AppBarTheme(backgroundColor: GoogleLetterPalette.blue,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: Color(0xFF161515), elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle.dark),
       inputDecorationTheme: InputDecorationTheme(
         filled: true, fillColor: GoogleLetterPalette.green,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -1673,7 +1680,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ]),
             const Row(children: [
               Expanded(child: Center(child: Text('Tempo'))),
-              Expanded(child: Center(child: Text('Pitch'))),
+              Expanded(child: Center(child: Text('Semitones'))),
+              Expanded(child: Center(child: Text('Cents'))),
               Expanded(child: Center(child: Text('Preamp'))),
             ]),
             Expanded(child: Row(children: [
@@ -1698,22 +1706,28 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))])),
               Expanded(child: CupertinoPicker(
                 scrollController: FixedExtentScrollController(
-                  initialItem: (pitchSemitones * 100 + pitchCents).round()
-                    .clamp(-1200, 1200) + 1200),
+                  initialItem: pitchSemitones.clamp(-12, 12) + 12),
                 itemExtent: 40,
                 onSelectedItemChanged: (value) {
-                  final cents = value - 1200;
-                  parentRefresh(() {
-                    pitchSemitones = (cents / 100).truncate();
-                    pitchCents = (cents - pitchSemitones * 100).toDouble();
-                  });
+                  parentRefresh(() => pitchSemitones = value - 12);
                   wheelRefresh(() {});
                   setState(() {});
                   scheduleNativePitchTempoUpdate();
                 },
-                children: [for (var i = -1200; i <= 1200; i++)
-                  Center(child: Text('${(i / 100).toStringAsFixed(2)} st',
-                    style: const TextStyle(fontSize: 12)))])),
+                children: [for (var i = -12; i <= 12; i++)
+                  Center(child: Text('${i >= 0 ? '+' : ''}$i'))])),
+              Expanded(child: CupertinoPicker(
+                scrollController: FixedExtentScrollController(
+                  initialItem: pitchCents.round().clamp(-99, 99) + 99),
+                itemExtent: 40,
+                onSelectedItemChanged: (value) {
+                  parentRefresh(() => pitchCents = (value - 99).toDouble());
+                  wheelRefresh(() {});
+                  setState(() {});
+                  scheduleNativePitchTempoUpdate();
+                },
+                children: [for (var i = -99; i <= 99; i++)
+                  Center(child: Text('${i >= 0 ? '+' : ''}$i'))])),
               Expanded(child: CupertinoPicker(
                 scrollController: FixedExtentScrollController(
                   initialItem: ((preampDb + 12) * 2).round().clamp(0, 48)),
@@ -1741,8 +1755,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             crossAxisAlignment: CrossAxisAlignment.center, children: [
             const Text('Tempo', style: TextStyle(fontWeight: FontWeight.w800)),
             Text('${(playbackSpeed * 100).round()}%'),
-            dragOnlySlider(value: playbackSpeed, min: 0.5, max: 2.0,
-              divisions: 150,
+            dragOnlySlider(value: playbackSpeed < 1
+                ? (playbackSpeed - 1) * 2 : playbackSpeed - 1,
+              min: -1, max: 1, divisions: 200,
               onReset: () {
                 refresh(() {
                   playbackSpeed = 1;
@@ -1753,9 +1768,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               },
               onChanged: (value) {
                 refresh(() {
-                  playbackSpeed = value;
+                  playbackSpeed = value < 0 ? 1 + value / 2 : 1 + value;
                   if (linkedPitchTempo) {
-                    final cents = (1200 * math.log(value) / math.ln2)
+                    final cents = (1200 * math.log(playbackSpeed) / math.ln2)
                         .round().clamp(-1200, 1200);
                     pitchSemitones = (cents / 100).truncate();
                     pitchCents = (cents - pitchSemitones * 100).toDouble();
@@ -1782,6 +1797,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 setState(() {});
                 updateNativePitchTempo();
               }),
+            if (!linkedPitchTempo) ...[
             const Text('Pitch', style: TextStyle(fontWeight: FontWeight.w800)),
             Text('${(pitchSemitones + pitchCents / 100).toStringAsFixed(2)} st'),
             Semantics(
@@ -1803,6 +1819,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   setState(() {});
                   scheduleNativePitchTempoUpdate();
                 }, onChangeEnd: (_) => updateNativePitchTempo())),
+            ],
             const SizedBox(height: 8),
             const Text('Preamp', style: TextStyle(fontWeight: FontWeight.w800)),
             Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
@@ -1819,7 +1836,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               }, onChangeEnd: (_) => applyNativeEQ()),
             const SizedBox(height: 6),
             IconButton(tooltip: 'Open precision tuning wheels',
-              icon: const Icon(Icons.music_note_rounded, size: 30),
+              icon: const _TuningForkIcon(),
               onPressed: () => showThreePrecisionWheels(refresh)),
             TextButton(onPressed: () async {
               refresh(() { pitchSemitones = 0; pitchCents = 0; playbackSpeed = 1; });
@@ -2242,18 +2259,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           libraryPlaylistsPage = !libraryPlaylistsPage;
           if (!libraryPlaylistsPage) { activePlaylist = null; favoritesOnly = false; }
         }),
-        label: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 440),
-          switchInCurve: Curves.elasticOut,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) => ScaleTransition(
-            alignment: Alignment.centerLeft,
-            scale: Tween<double>(begin: 0.88, end: 1.0).animate(animation),
-            child: FadeTransition(opacity: animation, child: child)),
-          child: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
-            key: ValueKey(libraryPlaylistsPage),
-            style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
-              color: Color(0xFF221A1B)))),
+        label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
+          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
+            color: Color(0xFF221A1B))),
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
           color: Color(0xFF221A1B))), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
@@ -2262,8 +2270,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onPressed: showLibraryOptionsPane),
       ]),
       body: SafeArea(bottom: false, child: Column(children: [
-        const SizedBox(height: 16, width: double.infinity,
-          child: CustomPaint(painter: _PixelDitherSeam())),
+        const SizedBox(height: 6, width: double.infinity,
+          child: CustomPaint(painter: _ColorTileBorder())),
         ColoredBox(color: GoogleLetterPalette.cream,
           child: Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
             child: SizedBox(height: 38, child: TextField(
@@ -2281,26 +2289,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
         )))),
-        Expanded(child: ClipRect(child: ColoredBox(
-          color: GoogleLetterPalette.cream, child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 630),
-          switchInCurve: Curves.easeInOutCubicEmphasized,
-          switchOutCurve: Curves.easeInOutCubicEmphasized,
-          layoutBuilder: (current, previous) => Stack(
-            fit: StackFit.expand, children: [
-              ...previous.map((page) => Positioned.fill(child: page)),
-              if (current != null) Positioned.fill(child: current),
-            ]),
-          transitionBuilder: (child, animation) {
-            // Incoming pages always travel RIGHT -> LEFT; outgoing pages
-            // leave LEFT. Returning wraps behind the visible page instead of
-            // reversing direction on every other press.
-            final incoming = animation.status != AnimationStatus.reverse;
-            final offset = incoming ? const Offset(1, 0) : const Offset(-1, 0);
-            return SlideTransition(
-              position: Tween<Offset>(begin: offset, end: Offset.zero)
-                .animate(animation), child: child);
-          },
+        Expanded(child: ColoredBox(color: GoogleLetterPalette.cream,
           child: libraryPlaylistsPage
             ? ListView(key: const ValueKey('playlist-directory'), children: [
           ListTile(leading: const Icon(Icons.add_circle_rounded),
@@ -2437,8 +2426,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                         ? GoogleLetterPalette.red.withValues(alpha: 0.14)
                         : Colors.transparent,
                       borderRadius: BorderRadius.circular(8)),
-                    child: Text(displayName(files[index]), maxLines: 2,
-                      overflow: TextOverflow.fade,
+                    child: Text(displayName(files[index]), maxLines: 1,
+                      softWrap: false, overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontWeight: FontWeight.w700,
                         color: index == currentIndex
                           ? GoogleLetterPalette.red : GoogleLetterPalette.creamText,
@@ -2476,7 +2465,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ),
               ]);
             })),
-        ])))))),
+        ]))),
         if (currentIndex >= 0 && currentIndex < files.length) ColoredBox(
           color: GoogleLetterPalette.cream, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -2703,28 +2692,50 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 }
 
-/// A 16-bit-style geometric weave: mustard pixels migrate into cream.
-class _PixelDitherSeam extends CustomPainter {
-  const _PixelDitherSeam();
+/// A compact actual tuning fork, drawn rather than substituting a music note.
+class _TuningForkIcon extends StatelessWidget {
+  const _TuningForkIcon();
+  @override
+  Widget build(BuildContext context) => SizedBox.square(dimension: 34,
+    child: CustomPaint(painter: _TuningForkPainter(
+      Theme.of(context).colorScheme.onSurface)));
+}
+
+class _TuningForkPainter extends CustomPainter {
+  final Color color;
+  const _TuningForkPainter(this.color);
   @override
   void paint(Canvas canvas, Size size) {
-    final mustard = Paint()..color = GoogleLetterPalette.blue;
-    final cream = Paint()..color = GoogleLetterPalette.cream;
-    canvas.drawRect(Offset.zero & size, cream);
-    const step = 6.0;
-    for (var y = 0.0; y < size.height; y += step) {
-      final row = (y / step).floor();
-      for (var x = 0.0; x < size.width; x += step) {
-        final col = (x / step).floor();
-        if (row == 0 || (row == 1 && (col % 3 != 1)) ||
-            (row == 2 && col % 5 == 0)) {
-          canvas.drawRect(Rect.fromLTWH(x, y, step, step), mustard);
-        }
-      }
+    final paint = Paint()..color = color..strokeWidth = 3.6
+      ..strokeCap = StrokeCap.round..style = PaintingStyle.stroke;
+    final x = size.width / 2;
+    final fork = Path()
+      ..moveTo(x - 8, 3)..lineTo(x - 8, 15)
+      ..quadraticBezierTo(x - 8, 23, x, 23)
+      ..quadraticBezierTo(x + 8, 23, x + 8, 15)
+      ..lineTo(x + 8, 3);
+    canvas.drawPath(fork, paint);
+    canvas.drawLine(Offset(x, 23), Offset(x, 31), paint);
+  }
+  @override
+  bool shouldRepaint(covariant _TuningForkPainter old) => old.color != color;
+}
+
+/// A single repeating row of red / blue / green / yellow tiles.
+class _ColorTileBorder extends CustomPainter {
+  const _ColorTileBorder();
+  @override
+  void paint(Canvas canvas, Size size) {
+    const colors = [GoogleLetterPalette.red, GoogleLetterPalette.yellow,
+      GoogleLetterPalette.green, GoogleLetterPalette.blue];
+    const tileWidth = 12.0;
+    for (var x = 0.0, i = 0; x < size.width; x += tileWidth, i++) {
+      canvas.drawRect(Rect.fromLTWH(x, 0, tileWidth, size.height),
+        Paint()..color = colors[i % colors.length]);
     }
   }
   @override
-  bool shouldRepaint(covariant _PixelDitherSeam old) => false;
+  bool shouldRepaint(covariant _ColorTileBorder old) => false;
 }
 
 /// Deliberately thicker than Material's regular plus glyph, no enclosing ring.
