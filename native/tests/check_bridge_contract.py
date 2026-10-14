@@ -29,7 +29,7 @@ require("DropdownButton<double>" not in dart and "Playing from Your Library" not
 require("LiveWaveformPainter" in dart and "installTap(onBus:" in graph and
         "waveform()" in graph,
         "Live waveform samples come from native audio output")
-require("return Stack(children: [" in dart and "AnimatedContainer(" in dart and
+require("return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [" in dart and "AnimatedContainer(" in dart and
         "transform: Matrix4.translationValues(0, playerDrag.clamp(0.0, height), 0)" in dart and
         "if (!libraryHome)" in dart,
         "Player follows drag over visible library and settles without leaving a blank overlay")
@@ -74,10 +74,10 @@ require("isSameAudio" in dart and "originalNames" in dart and
         "if (duplicate) continue;" in dart,
         "Repeated audio imports preserve original track labels")
 require("Widget dragOnlySlider(" in dart and "onHorizontalDragUpdate" in dart and
-        "onDoubleTap: onReset" in dart and "showPitchWheel(refresh)" in dart,
+        "onDoubleTap: onReset" in dart and "showThreePrecisionWheels(refresh)" in dart,
         "Pitch slider supports drag-only adjustments, double-tap reset and precision wheel")
 require("startMiniSwipe()" in dart and "finishMiniSwipe" in dart and
-        "return Stack(children: [" in dart and "AnimatedContainer(" in dart and "if (!libraryHome)" in dart,
+        "child: Stack(children: [" in dart and "AnimatedContainer(" in dart and "if (!libraryHome)" in dart,
         "Swipe-up opens a bounded player; minimize cannot strand a grey overlay")
 require("curve.quadraticBezierTo" in dart and "canvas.drawPath(curve, paint)" in dart,
         "Live EQ is rendered as a single responsive frequency contour")
@@ -98,3 +98,12 @@ require("libraryRenderEpoch++" in dart and
 require("ui.ImageFilter.blur(sigmaX: strength * 7" in dart and
         "TweenAnimationBuilder<double>" in dart,
         "Backdrop blur grows smoothly with player expansion")
+
+require("class _PixelDitherSeam extends CustomPainter" in dart and
+        "GoogleLetterPalette.cream" in dart,
+        "16-bit pixel dither seam and cream background available")
+require("Icons.link_off_rounded" in dart and "Icons.link_rounded" in dart and
+        "Future<void> showThreePrecisionWheels" in dart,
+        "Pitch and tempo link state preserved with three-wheel precision controls")
+require("seekSeconds(-10)" not in dart and "seekSeconds(10)" not in dart,
+        "All double-tap jump-forward and jump-back seek gestures removed")
