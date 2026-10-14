@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'metadata_art.dart';
+import 'google_letter_palette.dart';
 
 // Replaced with the GitHub Actions run number before every iOS build.
 const String auraBuildNumber = 'DEV';
@@ -84,8 +85,8 @@ Future<void> main() async {
       ),
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF221A1B),
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFF08078), brightness: Brightness.dark),
-      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFFFB8A5), foregroundColor: Color(0xFF161515)),
+      colorScheme: ColorScheme.fromSeed(seedColor: GoogleLetterPalette.red, brightness: Brightness.dark),
+      appBarTheme: const AppBarTheme(backgroundColor: GoogleLetterPalette.blue, foregroundColor: Color(0xFF161515)),
       inputDecorationTheme: InputDecorationTheme(
         filled: true, fillColor: const Color(0xFF372825),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -109,6 +110,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final originalNames = <String, String>{};
   final trackMetadata = <String, Map<String, String>>{};
   final embeddedArt = <String, Uint8List?>{};
+  final localThumbnailBytes = <String, Uint8List>{};
+  int libraryRenderEpoch = 0;
   final eqGains = List<double>.filled(10, 0);
   final customEqPresets = <String, List<double>>{};
   bool eqEnabled = false;
@@ -126,7 +129,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     'V-shaped': [4, 3, 1, -1, -2, -1, 1, 3, 4, 3],
     'Soft': [1, 1, 0, 0, 0, -1, -2, -2, -2, -1],
   };
-  static const Color activeEqAccent = Color(0xFFF08078);
+  static const Color activeEqAccent = GoogleLetterPalette.red;
   Timer? eqDebounce;
   final favorites = <String>{};
   final playlists = <String, List<String>>{};
@@ -1042,6 +1045,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     Future.delayed(const Duration(milliseconds: 310), () {
       if (mounted && dismissingPlayer) setState(() {
         libraryHome = true; playerDrag = 0; dismissingPlayer = false;
+        libraryRenderEpoch++;
       });
     });
   }
@@ -1637,7 +1641,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Widget dragOnlySlider({required double value, required double min,
     required double max, int? divisions, required ValueChanged<double> onChanged,
-    required VoidCallback onReset, ValueChanged<double>? onChangeEnd}) {
+    VoidCallback? onReset, ValueChanged<double>? onChangeEnd}) {
     return LayoutBuilder(builder: (context, bounds) => GestureDetector(
       behavior: HitTestBehavior.opaque,
       onDoubleTap: onReset,
@@ -2017,6 +2021,42 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Map<String, String> metadataFor(String path) =>
     trackMetadata[manifestTrackKey(path)] ?? const <String, String>{};
 
+  Widget songArtworkThumbnail(String path) {
+    const fallback = ColoredBox(color: Color(0xFF352729),
+      child: Icon(Icons.music_note_rounded, size: 23, color: Colors.white70));
+    final meta = metadataFor(path);
+    final local = meta['artworkData'] ?? '';
+    final remote = meta['artworkUrl'] ?? '';
+    final embedded = embeddedArt[path];
+    Widget photo = fallback;
+    if (local.isNotEmpty) {
+      try {
+        final bytes = localThumbnailBytes.putIfAbsent(path,
+          () => base64Decode(local));
+        photo = Image.memory(bytes, fit: BoxFit.cover,
+          cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => fallback);
+      } catch (_) { photo = fallback; }
+    } else if (embedded != null && embedded.isNotEmpty) {
+      photo = Image.memory(embedded, fit: BoxFit.cover,
+        cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => fallback);
+    } else if (remote.isNotEmpty) {
+      photo = Image.network(remote, fit: BoxFit.cover,
+        cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => fallback);
+    }
+    // Query native embedded-art metadata only for on-screen rows.
+    if (!embeddedArt.containsKey(path) && local.isEmpty && remote.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && files.contains(path)) probeEmbeddedArt(path);
+      });
+    }
+    return SizedBox(width: 40, height: 40, child: ClipRRect(
+      borderRadius: BorderRadius.circular(6), child: photo));
+  }
+
+
   Future<void> showTrackDetails(String path) async {
     Map<dynamic, dynamic>? probe;
     try { probe = await nativeDsp.invokeMapMethod<dynamic, dynamic>('probeFileDetails', {'path': path}); }
@@ -2053,6 +2093,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> saveTrackMetadata(String path, Map<String, String> data) async {
+    localThumbnailBytes.remove(path);
     if (mounted) setState(() => trackMetadata[manifestTrackKey(path)] = Map.of(data));
     await saveLibrary();
     if (currentIndex >= 0 && currentIndex < files.length && files[currentIndex] == path) {
@@ -2147,15 +2188,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           libraryPlaylistsPage = !libraryPlaylistsPage;
           if (!libraryPlaylistsPage) { activePlaylist = null; favoritesOnly = false; }
         }),
-        label: AnimatedSwitcher(duration: const Duration(milliseconds: 240),
-          child: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
-            key: ValueKey(libraryPlaylistsPage),
-            style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
-              color: Color(0xFF221A1B)))),
+        label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
+          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
+            color: Color(0xFF221A1B))),
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
           color: Color(0xFF221A1B))), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
-        IconButton(tooltip: 'Import music as a copy', icon: const Icon(Icons.add_rounded, size: 32), onPressed: import),
+        IconButton(tooltip: 'Import music as a copy', icon: const ChunkyPlusIcon(), onPressed: import),
         IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_horiz_rounded, size: 29),
           onPressed: showLibraryOptionsPane),
       ]),
@@ -2163,7 +2202,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         Container(height: 5, decoration: const BoxDecoration(
           gradient: LinearGradient(begin: Alignment.topCenter,
             end: Alignment.bottomCenter, colors: [
-              Color(0x66F08078), Color(0x00221A1B)]))),
+              GoogleLetterPalette.yellow, Color(0x00221A1B)]))),
         Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8), child: SizedBox(height: 38, child: TextField(
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
@@ -2176,15 +2215,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
         ))),
-        if (libraryPlaylistsPage) Expanded(child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
+        Expanded(child: ClipRect(child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 360),
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation, child: SlideTransition(
-              position: Tween<Offset>(begin: const Offset(0.08, 0), end: Offset.zero)
-                  .animate(animation), child: child)),
-          child: ListView(key: const ValueKey('playlist-directory'), children: [
+          transitionBuilder: (child, animation) => SlideTransition(
+            position: Tween<Offset>(
+              begin: libraryPlaylistsPage ? const Offset(0.90, 0) : const Offset(-0.90, 0),
+              end: Offset.zero).animate(animation), child: child),
+          child: libraryPlaylistsPage
+            ? ListView(key: const ValueKey('playlist-directory'), children: [
           ListTile(leading: const Icon(Icons.add_circle_rounded),
             title: const Text('Create a playlist'), onTap: createPlaylist),
           for (final name in playlists.keys)
@@ -2196,7 +2236,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 libraryPlaylistsPage = false; activePlaylist = name;
                 favoritesOnly = false; query = ''; searchController.clear();
               })),
-        ]))) else ...[
+        ]) : Column(key: const ValueKey('song-directory'), children: [
         // Compact library navigation: one menu instead of stacked chip rows.
         Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Row(children: [
           PopupMenuButton<String>(
@@ -2278,7 +2318,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
               ]))
           : ListView.builder(primary: false,
-              key: ValueKey('full-library-${files.length}-${libraryHome ? 1 : 0}-${query.isEmpty && activePlaylist == null && !favoritesOnly ? 'all' : 'filtered'}'),
+              key: ValueKey('full-library-$libraryRenderEpoch-${files.length}-${query.isEmpty && activePlaylist == null && !favoritesOnly ? 'all' : 'filtered'}'),
+              cacheExtent: files.length <= 20 ? 12000 : 700,
               physics: const ClampingScrollPhysics(),
               itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];
@@ -2287,35 +2328,44 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               final groupStart = sortMode == 'fileType' && extension != previousExtension;
               return Column(mainAxisSize: MainAxisSize.min, children: [
                 if (groupStart) Container(width: double.infinity, padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                  color: const Color(0xFFF08078), child: Text('$extension files',
+                  color: GoogleLetterPalette.red, child: Text('$extension files',
                     style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Colors.black))),
                 ListTile(
                 shape: const Border(bottom: BorderSide(
                   color: Color(0x2EFFFFFF), width: 0.6)),
-                leading: index == currentIndex
-                  ? ValueListenableBuilder<List<double>>(valueListenable: waveformLevels,
-                      builder: (_, levels, __) => SizedBox(width: 24, height: 28,
+                leading: songArtworkThumbnail(files[index]),
+                title: Row(children: [
+                  if (index == currentIndex) ...[
+                    ValueListenableBuilder<List<double>>(valueListenable: waveformLevels,
+                      builder: (_, levels, __) => SizedBox(width: 22, height: 26,
                         child: CustomPaint(painter: MiniMusicBarsPainter(
-                          levels: levels, active: isPlaying))))
-                  : const Icon(Icons.music_note_rounded, color: Colors.white70),
-                title: Align(alignment: Alignment.centerLeft,
+                          levels: levels, active: isPlaying)))),
+                    const SizedBox(width: 5),
+                  ],
+                  Flexible(child: Align(alignment: Alignment.centerLeft,
                   child: Container(padding: const EdgeInsets.fromLTRB(5, 3, 5, 2),
                     decoration: BoxDecoration(
-                      color: index == currentIndex ? const Color(0x665A3A18) : Colors.transparent,
+                      color: index == currentIndex
+                        ? GoogleLetterPalette.red.withValues(alpha: 0.14)
+                        : Colors.transparent,
                       borderRadius: BorderRadius.circular(8)),
                     child: Text(displayName(files[index]), maxLines: 2,
                       overflow: TextOverflow.fade,
-                      style: const TextStyle(fontWeight: FontWeight.w700,
-                        letterSpacing: -0.5)))),
+                      style: TextStyle(fontWeight: FontWeight.w700,
+                        color: index == currentIndex ? GoogleLetterPalette.red : Colors.white,
+                        letterSpacing: -0.5))))),
+                ]),
                 subtitle: Text([
                   if ((metadataFor(files[index])['artist'] ?? '').trim().isNotEmpty)
                     metadataFor(files[index])['artist']!.trim(),
                   if (index == currentIndex) 'Now playing'
-                  else if (trackDurations.containsKey(files[index]))
-                    clock(trackDurations[files[index]]!)
-                  else 'Local audio',
+                  else if ((metadataFor(files[index])['artist'] ?? '').trim().isEmpty &&
+                      sortMode != 'length') 'Local audio',
+                  if (sortMode == 'length' && trackDurations.containsKey(files[index]))
+                    clock(trackDurations[files[index]]!),
                 ].join('  -  '), maxLines: 2, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white70)),
+                  style: TextStyle(color: index == currentIndex
+                    ? GoogleLetterPalette.green : Colors.white70)),
                 trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert_rounded),
                   onPressed: () => trackMenu(files[index])),
                 onLongPress: () {
@@ -2336,7 +2386,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ),
               ]);
             })),
-        ],
+        ])))),
         if (currentIndex >= 0 && currentIndex < files.length) GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragStart: (_) => startMiniSwipe(),
@@ -2345,7 +2395,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 240),
             margin: EdgeInsets.zero,
-            decoration: const BoxDecoration(color: Color(0xFF5D3031),
+            decoration: const BoxDecoration(color: GoogleLetterPalette.blue,
               borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
             child: Padding(padding: EdgeInsets.fromLTRB(12, 0, 12,
               MediaQuery.paddingOf(context).bottom * 0.6), child: ListTile(
@@ -2354,12 +2404,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               builder: (_, levels, __) => SizedBox(width: 26, height: 28,
                 child: CustomPaint(painter: MiniMusicBarsPainter(
                   levels: levels, active: isPlaying)))),
-            title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
+            title: ScrollingTrackTitle(text: title, style: const TextStyle(
+              fontWeight: FontWeight.w800, color: Color(0xFF161515))),
             onTap: showPlayer,
             trailing: IconButton(
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 180),
                 child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  key: ValueKey(isPlaying))),
+                  color: const Color(0xFF161515), key: ValueKey(isPlaying))),
               onPressed: togglePlayback,
             ),
           )),
@@ -2379,7 +2430,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       backgroundColor: const Color(0xFF221A1B),
       appBar: AppBar(
         backgroundColor: const Color(0xFF221A1B),
-        foregroundColor: const Color(0xFFFFB8A5),
+        foregroundColor: GoogleLetterPalette.blue,
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
         title: const Text('Now Playing', maxLines: 1, softWrap: false,
@@ -2412,7 +2463,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
-                color: Color(0xFFF08078), child: Icon(Icons.music_note_rounded, size: 100)));
+                color: GoogleLetterPalette.red, child: Icon(Icons.music_note_rounded, size: 100)));
             }
             final path = files[currentIndex];
             return SizedBox.square(dimension: side, child: ArtworkFlipCard(
@@ -2422,7 +2473,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }))),
           const SizedBox(height: 22),
           Row(children: [
-            Expanded(child: SizedBox(height: 38, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFFFFB8A5))))),
+            Expanded(child: SizedBox(height: 38, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: GoogleLetterPalette.blue)))),
             if (currentIndex >= 0 && currentIndex < files.length)
               IconButton(tooltip: 'Technical metadata', icon: const Icon(Icons.info_outline_rounded),
                 onPressed: () => showTrackDetails(files[currentIndex])),
@@ -2430,7 +2481,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               IconButton(tooltip: 'Favorite',
                 onPressed: () => toggleFavorite(files[currentIndex]),
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                  color: const Color(0xFFFFB8A5))),
+                  color: GoogleLetterPalette.blue)),
           ]),
           if (currentIndex >= 0 && currentIndex < files.length &&
               (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty)
@@ -2438,7 +2489,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: Text(metadataFor(files[currentIndex])['artist']!.trim(),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700,
-                  color: Color(0xFFFFB8A5), fontSize: 15))),
+                  color: GoogleLetterPalette.blue, fontSize: 15))),
           AnimatedSwitcher(duration: const Duration(milliseconds: 360),
             transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
             child: listeningOutput.isEmpty ? const SizedBox(height: 12, key: ValueKey('empty-route')) :
@@ -2447,9 +2498,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
                   if (sourceLossless) 'Lossless source'].join('  •  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 10, color: Color(0xFFFFB8A5))))),
+                style: const TextStyle(fontSize: 10, color: GoogleLetterPalette.blue)))),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: dragOnlySlider(value: effectivePosition.clamp(0.0, maximum).toDouble(),
-            min: 0, max: maximum, onReset: () => seekTo(0),
+            min: 0, max: maximum,
             onChanged: (value) => setState(() {
               draggingSeek = true; scrubPosition = value;
             }),
@@ -2463,7 +2514,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ])),
           const SizedBox(height: 10),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            IconButton(tooltip: 'Shuffle', color: shuffle ? const Color(0xFFFFB8A5) : Colors.white,
+            IconButton(tooltip: 'Shuffle', color: shuffle ? GoogleLetterPalette.blue : Colors.white,
               onPressed: () async {
                 setState(() => shuffle = !shuffle);
                 await syncQueue(); await saveLibrary();
@@ -2491,7 +2542,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 child: const SizedBox(width: 52, height: 56,
                   child: Center(child: Icon(Icons.skip_next_rounded, size: 36))))),
             Column(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : const Color(0xFFFFB8A5),
+              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : GoogleLetterPalette.blue,
                 onPressed: () async {
                   setState(() => repeat = (repeat + 1) % 3);
                   await syncQueue(); await saveLibrary();
@@ -2538,8 +2589,20 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
     final height = math.max(1.0, MediaQuery.sizeOf(context).height);
+    final reveal = (1 - playerDrag.clamp(0.0, height) / height)
+        .clamp(0.0, 1.0).toDouble();
     return Stack(children: [
       buildLibrary(),
+      if (!libraryHome)
+        Positioned.fill(child: IgnorePointer(child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: reveal),
+          duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
+          curve: Curves.easeOutCubic,
+          builder: (_, strength, __) => BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: strength * 7,
+              sigmaY: strength * 7),
+            child: ColoredBox(color: Color.fromRGBO(0, 0, 0, strength * 0.08))),
+        ))),
       if (!libraryHome)
         AnimatedContainer(
           duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
@@ -2559,6 +2622,33 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 }
 
+/// Deliberately thicker than Material's regular plus glyph, no enclosing ring.
+class ChunkyPlusIcon extends StatelessWidget {
+  const ChunkyPlusIcon({super.key});
+  @override
+  Widget build(BuildContext context) => SizedBox(width: 30, height: 30,
+    child: CustomPaint(painter: _ChunkyPlusPainter(
+      Theme.of(context).appBarTheme.foregroundColor ?? const Color(0xFF221A1B))));
+}
+
+class _ChunkyPlusPainter extends CustomPainter {
+  final Color color;
+  const _ChunkyPlusPainter(this.color);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final c = Offset(size.width / 2, size.height / 2);
+    canvas.drawRRect(RRect.fromRectAndRadius(
+      Rect.fromCenter(center: c, width: size.width * 0.88, height: 7),
+      const Radius.circular(2)), paint);
+    canvas.drawRRect(RRect.fromRectAndRadius(
+      Rect.fromCenter(center: c, width: 7, height: size.height * 0.88),
+      const Radius.circular(2)), paint);
+  }
+  @override
+  bool shouldRepaint(covariant _ChunkyPlusPainter old) => old.color != color;
+}
+
 /// Single live horizontal EQ-frequency contour, driven by actual PCM analysis.
 class MiniMusicBarsPainter extends CustomPainter {
   final List<double> levels;
@@ -2567,7 +2657,7 @@ class MiniMusicBarsPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = const Color(0xFFF08078)
+    final paint = Paint()..color = GoogleLetterPalette.red
       ..strokeWidth = 3.5..strokeCap = StrokeCap.round;
     for (var i = 0; i < 4; i++) {
       final start = i * 11;
@@ -2576,8 +2666,8 @@ class MiniMusicBarsPainter extends CustomPainter {
           group.reduce(math.max).clamp(0.0, 1.0);
       final height = active ? 5 + strength * (size.height - 6) : 4.0;
       final x = size.width * (i + 0.5) / 4;
-      canvas.drawLine(Offset(x, (size.height - height) / 2),
-        Offset(x, (size.height + height) / 2), paint);
+      canvas.drawLine(Offset(x, size.height - height),
+        Offset(x, size.height), paint);
     }
   }
 
@@ -2614,7 +2704,7 @@ class LiveWaveformPainter extends CustomPainter {
     }
     curve.lineTo(points.last.dx, points.last.dy);
     final paint = Paint()
-      ..color = isPlaying ? const Color(0xFFFFB8A5) : const Color(0xFFF08078)
+      ..color = isPlaying ? GoogleLetterPalette.blue : GoogleLetterPalette.red
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6
       ..strokeCap = StrokeCap.round

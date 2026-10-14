@@ -81,3 +81,20 @@ require("startMiniSwipe()" in dart and "finishMiniSwipe" in dart and
         "Swipe-up opens a bounded player; minimize cannot strand a grey overlay")
 require("curve.quadraticBezierTo" in dart and "canvas.drawPath(curve, paint)" in dart,
         "Live EQ is rendered as a single responsive frequency contour")
+
+# Visual-only feature contract for Google-logo-color iteration.
+require("onReset: () => seekTo(0)" not in dart and
+        "min: 0, max: maximum," in dart,
+        "Playback timeline deliberately ignores double-taps")
+require("sortMode == 'length' && trackDurations.containsKey" in dart,
+        "Song durations appear in the library only for Track length sorting")
+require("songArtworkThumbnail(files[index])" in dart and
+        "class MiniMusicBarsPainter" in dart and
+        "Offset(x, size.height - height)" in dart,
+        "Tracklist artwork thumbnails and upward-only playing spectrum bars")
+require("libraryRenderEpoch++" in dart and
+        "cacheExtent: files.length <= 20" in dart,
+        "Song list remounts after player dismissal and caches small libraries")
+require("ui.ImageFilter.blur(sigmaX: strength * 7" in dart and
+        "TweenAnimationBuilder<double>" in dart,
+        "Backdrop blur grows smoothly with player expansion")

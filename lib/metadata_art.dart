@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'google_letter_palette.dart';
 import 'package:file_picker/file_picker.dart';
 
 typedef MetadataSave = Future<void> Function(Map<String, String> fields);
@@ -75,7 +76,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
             child: ClipRRect(borderRadius: BorderRadius.circular(8),
               child: DecoratedBox(
               decoration: const BoxDecoration(gradient: LinearGradient(
-                colors: [Color(0xFFFFB8A5), Color(0xFFF08078)])),
+                colors: [GoogleLetterPalette.blue, GoogleLetterPalette.red])),
               child: rear ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                 const Text('Add metadata?', style: TextStyle(color: Color(0xFF221A1B),
                   fontSize: 21, fontWeight: FontWeight.w900)),
