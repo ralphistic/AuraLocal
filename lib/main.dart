@@ -2438,7 +2438,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           position: Tween<Offset>(begin: const Offset(0.20, 0), end: Offset.zero)
             .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
           child: child)),
-        ]);
+        ]));
   }
 
   void showQuickAddMenu() {

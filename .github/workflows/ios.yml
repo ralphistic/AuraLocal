@@ -54,9 +54,12 @@ jobs:
       - name: Generate iOS project and dependencies
         run: |
           flutter create --platforms=ios --project-name auralocal .
+          # flutter create may generate a starter test referring to the absent
+          # template MyApp; exclude it before analyzing our actual application.
+          rm -f test/widget_test.dart
           flutter pub get
-          flutter test test/metadata_art_test.dart
           flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test test/metadata_art_test.dart
           flutter build ios --config-only --release --no-codesign
       - name: Stage native DSP Swift source for iOS compilation
         run: |
