@@ -2393,7 +2393,8 @@ class EditableEqCurvePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant EditableEqCurvePainter old) =>
       old.accent != accent ||
-      !listEquals(old.gains, gains);
+      old.gains.length != gains.length ||
+      List.generate(gains.length, (i) => i).any((i) => old.gains[i] != gains[i]);
 }
 
 class EqGridPainter extends CustomPainter {
