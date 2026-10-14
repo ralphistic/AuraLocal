@@ -1957,7 +1957,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   onTap: () { Navigator.pop(dialogContext); clearLibraryList(); }),
                 const Divider(),
                 ListTile(title: Text('AuraLocal Build $auraBuildNumber')),
-              ]))))),
+              ])))),
       ),
       transitionBuilder: (_, animation, __, child) => SlideTransition(
         position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
