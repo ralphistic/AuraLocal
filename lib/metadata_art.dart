@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 
 typedef MetadataSave = Future<void> Function(Map<String, String> fields);
@@ -39,6 +40,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
       (widget.metadata['artworkData'] ?? '').isNotEmpty;
 
   Future<void> confirmEdit() async {
+    HapticFeedback.mediumImpact();
     final edit = await showModalBottomSheet<bool>(context: context,
       builder: (sheet) => SafeArea(child: ListTile(
         leading: const Icon(Icons.edit_rounded),
@@ -65,7 +67,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
       final rear = rotation > math.pi / 2;
       return GestureDetector(
         onTap: hasArtwork ? null : toggle,
-        onLongPress: confirmEdit,
+        onLongPress: hasArtwork ? confirmEdit : null,
         child: Transform(transform: Matrix4.identity()..setEntry(3, 2, 0.0012)..rotateY(rotation),
           alignment: Alignment.center, child: Transform(
             alignment: Alignment.center,

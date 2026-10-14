@@ -127,6 +127,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final favorites = <String>{};
   final playlists = <String, List<String>>{};
   String? activePlaylist;
+  bool libraryPlaylistsPage = false;
   String? error;
   String listeningOutput = '';
   int outputGeneration = 0;
@@ -355,12 +356,20 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     return sortAscending ? comparison : -comparison;
   }
 
-  List<int> orderedTrackIndices() => List<int>.generate(files.length, (i) => i)
-    .where((i) => (activePlaylist == null || (playlists[activePlaylist]?.contains(files[i]) ?? false))
-      && (!favoritesOnly || favorites.contains(files[i]))
-      && (query.isEmpty || displayName(files[i]).toLowerCase().contains(query.toLowerCase()) ||
-          (originalNames[files[i]] ?? files[i].split('/').last).toLowerCase().contains(query.toLowerCase())))
-    .toList()..sort(compareTracks);
+  List<int> orderedTrackIndices() {
+    final needle = query.trim().toLowerCase();
+    final indices = List<int>.generate(files.length, (i) => i);
+    if (libraryPlaylistsPage) return [];
+    return indices.where((i) {
+      final path = files[i];
+      if (activePlaylist != null &&
+          !(playlists[activePlaylist]?.contains(path) ?? false)) return false;
+      if (favoritesOnly && !favorites.contains(path)) return false;
+      if (needle.isEmpty) return true;
+      return displayName(path).toLowerCase().contains(needle) ||
+          (originalNames[path] ?? path.split('/').last).toLowerCase().contains(needle);
+    }).toList()..sort(compareTracks);
+  }
 
   Future<void> syncQueue() async {
     // A visual search, playlist, or favorites filter must never rewrite the
@@ -914,6 +923,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   int transportHoldTicks = 0;
 
   void startTransportHold(int direction) {
+    HapticFeedback.selectionClick();
     transportHoldTimer?.cancel();
     transportHoldTicks = 0;
     if (currentIndex < 0 || durationSeconds <= 0) return;
@@ -952,9 +962,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void showLibrary() {
-    if (query.isNotEmpty || favoritesOnly || activePlaylist != null) {
+    if (query.isNotEmpty || favoritesOnly || activePlaylist != null || libraryPlaylistsPage) {
       searchController.clear();
-      setState(() { query = ''; favoritesOnly = false; activePlaylist = null; });
+      setState(() { query = ''; favoritesOnly = false; activePlaylist = null;
+        libraryPlaylistsPage = false; });
     }
     dismissPlayer();
   }
@@ -1044,7 +1055,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     ));
     controller.dispose();
     if (name == null || name.isEmpty || playlists.containsKey(name)) return;
-    setState(() { playlists[name] = []; activePlaylist = name; });
+    setState(() { playlists[name] = []; if (!libraryPlaylistsPage) activePlaylist = name; });
     await syncQueue();
     await saveLibrary();
   }
@@ -1056,13 +1067,26 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       context: context,
       builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const ListTile(title: Text('Add to playlist')),
+        ListTile(leading: const Icon(Icons.add_circle_rounded),
+          title: const Text('New playlist'),
+          onTap: () => Navigator.pop(context, '__create__')),
         for (final name in playlists.keys)
           ListTile(leading: const Icon(Icons.playlist_add_rounded), title: Text(name),
             onTap: () => Navigator.pop(context, name)),
       ])),
     );
-    if (selected == null || !playlists.containsKey(selected)) return;
-    setState(() { if (!playlists[selected]!.contains(path)) playlists[selected]!.add(path); });
+    if (selected == null) return;
+    if (selected == '__create__') {
+      final before = playlists.keys.toSet();
+      await createPlaylist();
+      if (!mounted) return;
+      final created = playlists.keys.where((name) => !before.contains(name)).toList();
+      if (created.isEmpty) return;
+      setState(() { if (!playlists[created.first]!.contains(path)) playlists[created.first]!.add(path); });
+    } else {
+      if (!playlists.containsKey(selected)) return;
+      setState(() { if (!playlists[selected]!.contains(path)) playlists[selected]!.add(path); });
+    }
     await saveLibrary();
     await syncQueue();
   }
@@ -1373,8 +1397,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF352729),
-      enableDrag: false,
-      showDragHandle: false,
+      enableDrag: true,
+      showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, refresh) {
           const accent = activeEqAccent;
@@ -1990,13 +2014,26 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Widget buildLibrary() {
     final matches = orderedTrackIndices();
     return Scaffold(
-      appBar: AppBar(title: const Text('Your Library'), actions: [
+      appBar: AppBar(title: TextButton.icon(
+        onPressed: () => setState(() {
+          libraryPlaylistsPage = !libraryPlaylistsPage;
+          if (!libraryPlaylistsPage) { activePlaylist = null; favoritesOnly = false; }
+        }),
+        label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
+          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
+            color: Color(0xFF221A1B))),
+        icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
+          color: Color(0xFF221A1B))), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
         IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add_circle_rounded, size: 27), onPressed: importInPlace),
         IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_horiz_rounded, size: 29),
           onPressed: showLibraryOptionsPane),
       ]),
       body: SafeArea(bottom: false, child: Column(children: [
+        Container(height: 5, decoration: const BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topCenter,
+            end: Alignment.bottomCenter, colors: [
+              Color(0x66F08078), Color(0x00221A1B)]))),
         Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8), child: SizedBox(height: 38, child: TextField(
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
@@ -2009,6 +2046,19 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
         ))),
+        if (libraryPlaylistsPage) Expanded(child: ListView(children: [
+          ListTile(leading: const Icon(Icons.add_circle_rounded),
+            title: const Text('Create a playlist'), onTap: createPlaylist),
+          for (final name in playlists.keys)
+            ListTile(leading: const Icon(Icons.queue_music_rounded), title: Text(name),
+              subtitle: Text('${playlists[name]?.length ?? 0} songs'),
+              trailing: IconButton(icon: const Icon(Icons.more_vert_rounded),
+                onPressed: () => playlistMenu(name)),
+              onTap: () => setState(() {
+                libraryPlaylistsPage = false; activePlaylist = name;
+                favoritesOnly = false; query = ''; searchController.clear();
+              })),
+        ])) else ...[
         // Compact library navigation: one menu instead of stacked chip rows.
         Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Row(children: [
           PopupMenuButton<String>(
@@ -2071,7 +2121,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               syncQueue();
             }, child: const Text('Show all songs')),
           ])))
-        else Flexible(fit: files.isEmpty ? FlexFit.tight : FlexFit.loose, child: files.isEmpty
+        else Expanded(child: files.isEmpty
           ? Center(child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -2089,7 +2139,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
               ]))
-          : ListView.builder(shrinkWrap: true, primary: false,
+          : ListView.builder(primary: false,
               physics: const ClampingScrollPhysics(),
               itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];
@@ -2101,16 +2151,23 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   color: const Color(0xFFF08078), child: Text('$extension files',
                     style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Colors.black))),
                 ListTile(
-                tileColor: index == currentIndex ? const Color(0x665A3A18) : null,
-                shape: const Border(left: BorderSide(color: Color(0xFF221A1B), width: 2)),
+                shape: const Border(bottom: BorderSide(
+                  color: Color(0x2EFFFFFF), width: 0.6)),
                 leading: index == currentIndex
                   ? ValueListenableBuilder<List<double>>(valueListenable: waveformLevels,
                       builder: (_, levels, __) => SizedBox(width: 24, height: 28,
                         child: CustomPaint(painter: MiniMusicBarsPainter(
                           levels: levels, active: isPlaying))))
                   : const Icon(Icons.music_note_rounded, color: Colors.white70),
-                title: Text(displayName(files[index]), maxLines: 2, overflow: TextOverflow.fade,
-                  style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.5)),
+                title: Align(alignment: Alignment.centerLeft,
+                  child: Container(padding: const EdgeInsets.fromLTRB(5, 3, 5, 2),
+                    decoration: BoxDecoration(
+                      color: index == currentIndex ? const Color(0x665A3A18) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8)),
+                    child: Text(displayName(files[index]), maxLines: 2,
+                      overflow: TextOverflow.fade,
+                      style: const TextStyle(fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5)))),
                 subtitle: Text(
                   index == currentIndex ? 'Now playing'
                       : trackDurations.containsKey(files[index])
@@ -2119,7 +2176,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   style: const TextStyle(color: Colors.white70)),
                 trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert_rounded),
                   onPressed: () => trackMenu(files[index])),
-                onLongPress: () => showTrackDetails(files[index]),
+                onLongPress: () {
+                  HapticFeedback.mediumImpact();
+                  showTrackDetails(files[index]);
+                },
                 onTap: () async {
                   await selectAndPlayTrack(index);
                   if (mounted) showPlayer();
@@ -2127,8 +2187,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ),
               ]);
             })),
-        if (currentIndex >= 0 && currentIndex < files.length)
-          const Spacer(),
+        ],
         if (currentIndex >= 0 && currentIndex < files.length) GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragStart: (_) => startMiniSwipe(),
@@ -2178,9 +2237,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
         titleSpacing: 0,
         actions: [
-          TextButton.icon(onPressed: showEqualizer,
-            icon: const Icon(Icons.tune_rounded, size: 24),
-            label: const Text('EQ', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+          TextButton(onPressed: showEqualizer,
+            child: const Text('EQ', style: TextStyle(fontWeight: FontWeight.w900,
+              fontSize: 18, letterSpacing: 0.8))),
           PopupMenuButton<String>(tooltip: 'More player actions',
             onSelected: (value) {
               if (value == 'queue') showQueue();
@@ -2292,7 +2351,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             TextButton.icon(onPressed: showQueue, icon: const Icon(Icons.queue_music_rounded),
               label: const Text('Queue')),
             if (currentIndex >= 0 && currentIndex < files.length)
-              IconButton(tooltip: 'Add to playlist', icon: const Icon(Icons.playlist_add_rounded),
+              TextButton.icon(icon: const Icon(Icons.playlist_add_rounded, size: 21),
+                label: const Text('Playlist'),
                 onPressed: () => addToPlaylist(files[currentIndex])),
           ]),
           const SizedBox(height: 4),
@@ -2304,6 +2364,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       ),
       // The transport double-tap targets live in clear margins below artwork,
       // leaving gestures on the title, controls and progress slider untouched.
+      Positioned(left: 1, top: viewport.maxHeight * 0.45,
+        child: Container(height: 30, width: 2,
+          decoration: BoxDecoration(color: const Color(0x32FFB8A5),
+            borderRadius: BorderRadius.circular(2)))),
+      Positioned(right: 1, top: viewport.maxHeight * 0.45,
+        child: Container(height: 30, width: 2,
+          decoration: BoxDecoration(color: const Color(0x32FFB8A5),
+            borderRadius: BorderRadius.circular(2)))),
       Positioned(left: 0, top: viewport.maxHeight * 0.24,
         height: viewport.maxHeight * 0.49, width: 52, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
