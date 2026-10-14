@@ -59,7 +59,7 @@ jobs:
           rm -f test/widget_test.dart
           flutter pub get
           flutter analyze --no-fatal-infos --no-fatal-warnings
-          flutter test test/metadata_art_test.dart
+          flutter test test/metadata_art_test.dart test/blurred_surfaces_test.dart
           flutter build ios --config-only --release --no-codesign
       - name: Stage native DSP Swift source for iOS compilation
         run: |

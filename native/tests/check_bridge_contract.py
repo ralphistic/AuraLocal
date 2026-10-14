@@ -4,6 +4,8 @@ dart = Path("lib/main.dart").read_text()
 bridge = Path("native/ios/AuraPitchBridge.swift").read_text()
 graph = Path("native/ios/AuraDspGraph.swift").read_text()
 workflow = Path(".github/workflows/ios.yml").read_text()
+surfaces = Path("lib/blurred_surfaces.dart").read_text()
+metadata = Path("lib/metadata_art.dart").read_text()
 
 def require(ok, message):
     if not ok:
@@ -99,9 +101,9 @@ require("key: const PageStorageKey<String>('persistent-song-library')" in dart a
         "cacheExtent: files.length <= 20" in dart and
         "libraryRenderEpoch++" not in dart,
         "Song list keeps stable scroll identity on minimize and caches small libraries")
-require("ui.ImageFilter.blur(sigmaX: strength * 7" in dart and
-        "TweenAnimationBuilder<double>" in dart,
-        "Backdrop blur grows smoothly with player expansion")
+require("sigmaX: blur * 7, sigmaY: blur * 7" in dart and
+        "final blur = ((progress - 0.20) / 0.80)" in dart,
+        "Backdrop blur is synchronized to actual player translation")
 
 require("class _ColorTileBorder extends CustomPainter" in dart and
         "GoogleLetterPalette.cream" in dart,
@@ -147,8 +149,9 @@ require("onPressed: showQuickAddMenu" in dart and
         all(label in dart for label in ["Link a song from Files", "Import a song as a copy", "Create a playlist"]),
         "Chunky plus opens a dedicated music import and playlist action sheet")
 require("showBlurredActionSheet((sheet)" in dart and
-        "ui.ImageFilter.blur(sigmaX: 6 * animation.value" in dart,
-        "Track action and quick-add floating sheets have animated backdrop blur")
+        "showAuraSheet<void>" in dart and
+        "sigmaX: 7 * animation.value" in surfaces,
+        "Track action and quick-add windows use shared animated backdrop blur")
 require("name: linkedPitchTempo ? 'Tapespeed' : 'Tempo'" in dart and
         "Column(mainAxisSize: MainAxisSize.min" in dart and
         "Text('Fine tuning'" in dart and "Text('Reset pitch & tempo'" in dart,
@@ -159,12 +162,33 @@ require("void showOutputPicker()" in dart and
         "AVRoutePickerView" in bridge and
         "registrar.register(OutputPickerFactory()" in bridge,
         "Player routes audio through the genuine iOS output picker")
-require("GoogleLetterPalette.searchGreen" in dart and
-        "EdgeInsets.fromLTRB(16, 8, 16, 8)" in dart,
-        "Search field has lightened green surface and symmetric vertical margins")
-require("wideSheetGrabHandle(sheet)" in dart and
-        "SizedBox(height: 48, width: double.infinity" in dart,
-        "Dialogs and EQ have accessible full-width drag grab zones")
+require("hintText: 'Search'" in dart and
+        "Color(0xFFFFFAEF)" in dart and
+        "EdgeInsets.fromLTRB(16, 8, 16, 0)" in dart,
+        "Search field matches the library surface with no lower gap")
+require("Key('aura-sheet-grab-zone')" in surfaces and
+        "onVerticalDragUpdate: (details)" in surfaces and
+        "distance > 110" in surfaces,
+        "All bottom sheets follow the finger via a full-width drag zone")
 require("Color.lerp(GoogleLetterPalette.blue" in dart and
         "((stage - 0.62) / 0.38)" in dart,
         "Player artwork fades in after the yellow-to-cream transition")
+
+require("onVerticalDragStart: (_) => startMiniSwipe()" in dart and
+        "ignoring: !libraryHome" in dart and
+        "opacity: libraryHome ? 1.0 : 0.0" in dart and
+        "if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(" in dart,
+        "MiniPlayer recognizer remains mounted throughout opening swipe")
+require("math.exp(-dt / responseTime)" in dart and
+        "lastSpectrumTick = elapsed" in dart,
+        "Waveform smoothing uses vsync timestamps instead of fixed per-frame steps")
+require("showAuraSheet<" in metadata and
+        "showAuraDialog<" in dart and
+        "showModalBottomSheet<" not in dart and
+        "showModalBottomSheet<" not in metadata,
+        "Metadata, queue, playlist, technical details, pitch and EQ all use blurred surfaces")
+require("onTap: showOutputPicker" in dart and
+        "'Output: $listeningOutput'" not in dart,
+        "Existing audio route codec information is the sole output picker trigger")
+require("test/blurred_surfaces_test.dart" in workflow,
+        "Finger tracking and backdrop blur are covered by Flutter widget tests")

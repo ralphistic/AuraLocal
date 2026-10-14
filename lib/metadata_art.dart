@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'blurred_surfaces.dart';
 import 'package:flutter/services.dart';
 import 'google_letter_palette.dart';
 import 'package:file_picker/file_picker.dart';
@@ -42,7 +43,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
 
   Future<void> confirmEdit() async {
     HapticFeedback.mediumImpact();
-    final edit = await showModalBottomSheet<bool>(context: context,
+    final edit = await showAuraSheet<bool>(context: context,
       builder: (sheet) => SafeArea(child: ListTile(
         leading: const Icon(Icons.edit_rounded),
         title: const Text('Edit Metadata?'),
@@ -123,11 +124,11 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
     String localArtwork = fields['artworkData'] ?? '';
     String artworkFeedback = '';
     try {
-      await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      await showAuraSheet<void>(context: context, isScrollControlled: true,
         backgroundColor: GoogleLetterPalette.cream,
         showDragHandle: true,
         builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) => Padding(
-          padding: EdgeInsets.fromLTRB(18, 10, 18, MediaQuery.viewInsetsOf(sheet).bottom + 18),
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('Track metadata', style: TextStyle(fontSize: 25,
               fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
@@ -201,7 +202,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
     final error = ValueNotifier<String?>(null);
     // The result picker is opened first; network calls must never freeze playback.
     if (!context.mounted) return;
-    final search = showModalBottomSheet<void>(context: context, isScrollControlled: true,
+    final search = showAuraSheet<void>(context: context, isScrollControlled: true,
       builder: (sheet) => SafeArea(child: Padding(padding: const EdgeInsets.all(18),
         child: SizedBox(height: MediaQuery.sizeOf(sheet).height * 0.62,
           child: Column(children: [

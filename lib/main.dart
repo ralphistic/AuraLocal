@@ -13,6 +13,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'metadata_art.dart';
 import 'google_letter_palette.dart';
+import 'blurred_surfaces.dart';
 
 // Replaced with the GitHub Actions run number before every iOS build.
 const String auraBuildNumber = 'DEV';
@@ -97,7 +98,7 @@ Future<void> main() async {
         foregroundColor: Color(0xFF161515), elevation: 0,
         systemOverlayStyle: SystemUiOverlayStyle.dark),
       inputDecorationTheme: InputDecorationTheme(
-        filled: true, fillColor: GoogleLetterPalette.searchGreen,
+        filled: true, fillColor: const Color(0xFFFFFAEF),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       ),
     ),
@@ -179,6 +180,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final waveformLevels = ValueNotifier<List<double>>(List.filled(48, 0));
   List<double> waveformTarget = List.filled(48, 0);
   Ticker? spectrumTicker;
+  Duration? lastSpectrumTick;
   Timer? pollTimer;
   bool pollBusy = false;
   int tick = 0;
@@ -205,13 +207,19 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       if (state['error'] is String) setState(() => error = state['error'] as String);
     });
     restoreLibrary();
-    spectrumTicker = createTicker((_) {
+    spectrumTicker = createTicker((elapsed) {
       if (!mounted) return;
+      final dt = lastSpectrumTick == null ? 1 / 60 :
+        ((elapsed - lastSpectrumTick!).inMicroseconds / 1000000.0)
+          .clamp(0.001, 0.05);
+      lastSpectrumTick = elapsed;
       final previous = waveformLevels.value;
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
         final before = previous[i];
-        return before + (target - before) * (target > before ? 0.55 : 0.31);
+        final responseTime = target > before ? 0.060 : 0.110;
+        final fraction = 1 - math.exp(-dt / responseTime);
+        return before + (target - before) * fraction;
       });
       waveformLevels.value = next;
     });
@@ -239,7 +247,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void showOutputPicker() {
-    showModalBottomSheet<void>(context: context,
+    showAuraSheet<void>(context: context,
       backgroundColor: GoogleLetterPalette.cream,
       showDragHandle: true,
       builder: (sheet) => SafeArea(child: Padding(
@@ -817,7 +825,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> clearLibraryList() async {
-    final confirmed = await showDialog<bool>(context: context, builder: (dialog) =>
+    final confirmed = await showAuraDialog<bool>(context: context, builder: (dialog) =>
       AlertDialog(title: const Text('Clear remembered songs?'),
         content: const Text('Remove all old song references from this library. Audio files in Files are NOT deleted. Then link only the 9 songs you want using +.'),
         actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
@@ -1091,7 +1099,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     if (libraryHome || dismissingPlayer) return;
     final collapsed = _collapsedPlayerOffset();
     setState(() { dismissingPlayer = true; draggingPlayer = false; playerDrag = collapsed; });
-    Future.delayed(const Duration(milliseconds: 310), () {
+    Future.delayed(const Duration(milliseconds: 355), () {
       if (mounted && dismissingPlayer) setState(() {
         libraryHome = true; playerDrag = 0; dismissingPlayer = false;
       });
@@ -1161,7 +1169,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> createPlaylist() async {
     final controller = TextEditingController();
-    final name = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+    final name = await showAuraDialog<String>(context: context, builder: (context) => AlertDialog(
       title: const Text('New playlist'),
       content: TextField(controller: controller, autofocus: true, maxLength: 60,
         decoration: const InputDecoration(hintText: 'Playlist name')),
@@ -1180,7 +1188,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Future<void> addToPlaylist(String path) async {
     if (playlists.isEmpty) await createPlaylist();
     if (!mounted || playlists.isEmpty) return;
-    final selected = await showModalBottomSheet<String>(
+    final selected = await showAuraSheet<String>(
       context: context,
       builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const ListTile(title: Text('Add to playlist')),
@@ -1210,7 +1218,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> renamePlaylist(String oldName) async {
     final controller = TextEditingController(text: oldName);
-    final name = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+    final name = await showAuraDialog<String>(context: context, builder: (context) => AlertDialog(
       title: const Text('Rename playlist'),
       content: TextField(controller: controller, autofocus: true),
       actions: [
@@ -1229,7 +1237,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void playlistMenu(String name) {
-    showModalBottomSheet<void>(context: context, builder: (sheet) => SafeArea(child:
+    showAuraSheet<void>(context: context, builder: (sheet) => SafeArea(child:
       Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(leading: const Icon(Icons.edit), title: const Text('Rename playlist'), onTap: () {
           Navigator.pop(sheet); renamePlaylist(name);
@@ -1244,7 +1252,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> _renameTrack(String path) async {
     final controller = TextEditingController(text: displayName(path));
-    final renamed = await showDialog<String>(context: context,
+    final renamed = await showAuraDialog<String>(context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Rename track'),
         content: TextField(controller: controller, autofocus: true,
@@ -1263,7 +1271,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     showBlurredActionSheet((sheet) => Padding(
         padding: const EdgeInsets.fromLTRB(15, 15, 15, 22),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          wideSheetGrabHandle(sheet),
           _settingsSection('Track actions', [
             _settingsOption(label: favorites.contains(path)
                 ? 'Remove from Favorites' : 'Add to Favorites',
@@ -1288,7 +1295,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               accent: GoogleLetterPalette.red,
               onTap: () {
                 Navigator.pop(sheet);
-                showModalBottomSheet<void>(context: context,
+                showAuraSheet<void>(context: context,
                   isScrollControlled: true,
                   backgroundColor: GoogleLetterPalette.cream,
                   builder: (editor) => SafeArea(child: Padding(
@@ -1315,7 +1322,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void showQueue() {
-    showModalBottomSheet<void>(context: context, isScrollControlled: true,
+    showAuraSheet<void>(context: context, isScrollControlled: true,
       builder: (sheet) => StatefulBuilder(builder: (sheet, redraw) => SafeArea(
         child: FractionallySizedBox(heightFactor: 0.78, child: Column(children: [
           ListTile(title: const Text('Up Next'),
@@ -1380,7 +1387,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showPitchWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: GoogleLetterPalette.cream,
+    await showAuraSheet<void>(context: context, backgroundColor: GoogleLetterPalette.cream,
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 340,
         child: Column(children: [
           Row(children: [
@@ -1420,7 +1427,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showTempoWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: GoogleLetterPalette.cream,
+    await showAuraSheet<void>(context: context, backgroundColor: GoogleLetterPalette.cream,
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 330,
         child: Column(children: [
           Row(children: [
@@ -1493,7 +1500,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> saveCurrentEQPreset(StateSetter refresh) async {
     final controller = TextEditingController();
-    final name = await showDialog<String>(
+    final name = await showAuraDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Save custom EQ preset'),
@@ -1519,7 +1526,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       return;
     }
     if (customEqPresets.containsKey(name)) {
-      final replaceExisting = await showDialog<bool>(
+      final replaceExisting = await showAuraDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: Text('Replace "$name"?'),
@@ -1543,7 +1550,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> deleteCustomEQPreset(String name, StateSetter refresh) async {
     if (!customEqPresets.containsKey(name)) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAuraDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Delete "$name"?'),
@@ -1589,7 +1596,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void showEqualizer() {
-    showModalBottomSheet<void>(
+    showAuraSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: GoogleLetterPalette.cream,
@@ -1605,15 +1612,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
                 child: Column(children: [
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onVerticalDragEnd: (details) {
-                      if ((details.primaryVelocity ?? 0) > 280) Navigator.pop(sheetContext);
-                    },
-                    child: SizedBox(height: 48, width: double.infinity,
-                      child: Center(child: Container(width: 62, height: 6,
-                        decoration: BoxDecoration(color: GoogleLetterPalette.creamDivider,
-                          borderRadius: BorderRadius.circular(8)))))),
                   Row(children: [
                     const Icon(Icons.equalizer_rounded, color: accent, size: 27),
                     const SizedBox(width: 12),
@@ -1770,7 +1768,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showThreePrecisionWheels(StateSetter parentRefresh) async {
-    await showModalBottomSheet<void>(context: context,
+    await showAuraSheet<void>(context: context,
       isScrollControlled: true,
       backgroundColor: GoogleLetterPalette.cream,
       builder: (sheet) => StatefulBuilder(builder: (wheelContext, wheelRefresh) =>
@@ -1878,7 +1876,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void showAudioSettings() {
-    showModalBottomSheet<void>(context: context,
+    showAuraSheet<void>(context: context,
       isScrollControlled: true,
       backgroundColor: GoogleLetterPalette.cream,
       showDragHandle: true,
@@ -2308,7 +2306,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             !['unknown', 'null', 'n/a', 'none'].contains(entry.value.trim().toLowerCase()))
           entry.key: entry.value,
     };
-    await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+    await showAuraSheet<void>(context: context, isScrollControlled: true,
       builder: (sheet) => SafeArea(child: Padding(padding: const EdgeInsets.all(18),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Text('Technical file details', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
@@ -2331,41 +2329,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showBlurredActionSheet(Widget Function(BuildContext) builder) async {
-    await showGeneralDialog<void>(context: context,
-      barrierDismissible: true, barrierLabel: 'Close actions',
-      barrierColor: Colors.black38,
-      transitionDuration: const Duration(milliseconds: 310),
-      pageBuilder: (dialogContext, animation, secondaryAnimation) =>
-        SafeArea(child: Align(alignment: Alignment.bottomCenter,
-          child: Material(color: Colors.transparent,
-            child: Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 11),
-              child: ClipRRect(borderRadius: BorderRadius.circular(29),
-                child: ColoredBox(color: GoogleLetterPalette.cream,
-                  child: builder(dialogContext))))))),
-      transitionBuilder: (context, animation, secondary, child) => Stack(children: [
-        Positioned.fill(child: IgnorePointer(child: AnimatedBuilder(
-          animation: animation,
-          builder: (_, __) => BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 6 * animation.value,
-              sigmaY: 6 * animation.value),
-            child: const SizedBox.expand())))),
-        FadeTransition(opacity: animation,
-          child: SlideTransition(position: Tween<Offset>(
-            begin: const Offset(0, 0.16), end: Offset.zero).animate(
-              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-            child: child)),
-      ]));
+    await showAuraSheet<void>(context: context,
+      backgroundColor: GoogleLetterPalette.cream,
+      builder: (sheet) => Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 11),
+        child: builder(sheet)));
   }
-
-  Widget wideSheetGrabHandle(BuildContext sheet) => GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onVerticalDragEnd: (details) {
-      if ((details.primaryVelocity ?? 0) > 260) Navigator.pop(sheet);
-    },
-    child: SizedBox(height: 35, width: double.infinity,
-      child: Center(child: Container(height: 6, width: 62,
-        decoration: BoxDecoration(color: GoogleLetterPalette.creamDivider,
-          borderRadius: BorderRadius.circular(8))))));
 
   Widget _settingsOption({required String label, required IconData icon,
       required Color accent, required VoidCallback onTap, String? detail}) =>
@@ -2489,7 +2457,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     showBlurredActionSheet((sheet) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          wideSheetGrabHandle(sheet),
           const Align(alignment: Alignment.centerLeft,
             child: Padding(padding: EdgeInsets.fromLTRB(8, 8, 8, 15),
               child: Text('Add to your library', style: TextStyle(
@@ -2533,16 +2500,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       body: SafeArea(bottom: false, child: Column(children: [
         // No colored stripe: clean mustard header against cream library.
         ColoredBox(color: GoogleLetterPalette.cream,
-          child: Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: SizedBox(height: 46, child: TextField(
-          style: const TextStyle(fontSize: 14, color: Colors.white,
+          style: const TextStyle(fontSize: 14, color: GoogleLetterPalette.ink,
             fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
           controller: searchController,
           onChanged: (value) { setState(() => query = value); syncQueue(); },
-          decoration: InputDecoration(hintText: 'Search songs',
-            hintStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.search_rounded, color: Colors.white),
+          decoration: InputDecoration(hintText: 'Search',
+            hintStyle: const TextStyle(color: GoogleLetterPalette.creamText),
+            prefixIcon: const Icon(Icons.search_rounded, color: GoogleLetterPalette.ink),
             border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(80)), borderSide: BorderSide.none),
             isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
             prefixIconConstraints: const BoxConstraints(minWidth: 38, minHeight: 32),
@@ -2588,7 +2555,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               const PopupMenuItem(value: 'favorites', child: Text('Favorites')),
               for (final name in playlists.keys) PopupMenuItem(value: name, child: Text(name)),
             ],
-            child: Padding(padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+            child: Padding(padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Text(activePlaylist ?? (favoritesOnly ? 'Favorites' : 'All songs'),
                   style: const TextStyle(fontWeight: FontWeight.w800,
@@ -2668,6 +2635,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   color: GoogleLetterPalette.red, child: Text('$extension files',
                     style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Colors.black))),
                 ListTile(
+                dense: true,
+                visualDensity: const VisualDensity(vertical: -1),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 1),
                 shape: const Border(bottom: BorderSide(
                   color: GoogleLetterPalette.creamDivider, width: 0.7)),
                 leading: songArtworkThumbnail(files[index]),
@@ -2730,7 +2700,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ]);
             })),
         ])))),
-        if (libraryHome && currentIndex >= 0 && currentIndex < files.length) ColoredBox(
+        if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(
+          ignoring: !libraryHome,
+          child: Opacity(opacity: libraryHome ? 1.0 : 0.0,
+            child: ColoredBox(
           color: GoogleLetterPalette.cream, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragStart: (_) => startMiniSwipe(),
@@ -2759,7 +2732,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ),
           )),
           ),
-        )),
+        )))),
         if (isLibraryExporting || isLibraryRestoring)
           const LinearProgressIndicator(minHeight: 2),
         if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
@@ -2789,9 +2762,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
         titleSpacing: 0,
         actions: [
-          TextButton(onPressed: showEqualizer,
-            child: const Text('EQ', style: TextStyle(color: GoogleLetterPalette.ink, fontWeight: FontWeight.w900,
-              fontSize: 18, letterSpacing: 0.8))),
+          Opacity(opacity: ((stage - 0.62) / 0.38).clamp(0.0, 1.0).toDouble(),
+            child: TextButton(onPressed: showEqualizer,
+              child: const Text('EQ', style: TextStyle(color: GoogleLetterPalette.ink,
+                fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 0.8)))),
           PopupMenuButton<String>(tooltip: 'More player actions',
             onSelected: (value) {
               if (value == 'queue') showQueue();
@@ -2852,21 +2826,21 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700,
                   color: GoogleLetterPalette.creamText, fontSize: 15))),
-          TextButton.icon(onPressed: showOutputPicker,
-            icon: const Icon(Icons.airplay_rounded, size: 22),
-            label: Text(listeningOutput.isEmpty ? 'Choose audio output' :
-              'Output: $listeningOutput', maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-            style: TextButton.styleFrom(foregroundColor: GoogleLetterPalette.ink)),
-          AnimatedSwitcher(duration: const Duration(milliseconds: 360),
+          GestureDetector(behavior: HitTestBehavior.opaque,
+            onTap: showOutputPicker,
+            child: AnimatedSwitcher(duration: const Duration(milliseconds: 360),
             transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
-            child: listeningOutput.isEmpty ? const SizedBox(height: 12, key: ValueKey('empty-route')) :
+            child: listeningOutput.isEmpty ? const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Text('Choose audio output', key: ValueKey('empty-route'),
+                style: TextStyle(color: GoogleLetterPalette.ink, fontSize: 12))) :
               Padding(key: ValueKey('$listeningOutput/$listeningCodec/$sourceLossless'),
                 padding: const EdgeInsets.only(bottom: 5), child: Text(
                 [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
                   if (sourceLossless) 'Lossless source'].join('  •  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: GoogleLetterPalette.creamText)))),
+          ),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: dragOnlySlider(value: effectivePosition.clamp(0.0, maximum).toDouble(),
             min: 0, max: maximum,
             onChanged: (value) => setState(() {
@@ -2886,7 +2860,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               onPressed: () async {
                 setState(() => shuffle = !shuffle);
                 await syncQueue(); await saveLibrary();
-              }, icon: const Icon(Icons.shuffle_rounded)),
+              }, icon: const ChunkyShuffleIcon()),
             GestureDetector(behavior: HitTestBehavior.opaque,
               onTap: files.isEmpty ? null : () => skipTrack(-1),
               onLongPressStart: currentIndex < 0 ? null : (_) => startTransportHold(-1),
@@ -2915,7 +2889,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 onPressed: () async {
                   setState(() => repeat = (repeat + 1) % 3);
                   await syncQueue(); await saveLibrary();
-                }, icon: Icon(repeat == 2 ? Icons.repeat_one_rounded : Icons.repeat_rounded)),
+                }, icon: ChunkyRepeatIcon(one: repeat == 2)),
               Text(['OFF', 'ALL', 'ONE'][repeat],
                 style: const TextStyle(fontSize: 10, color: GoogleLetterPalette.creamText)),
             ]),
@@ -2947,21 +2921,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // The full-screen player must never be translated beyond the viewport.
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
-    final height = math.max(1.0, MediaQuery.sizeOf(context).height);
-    final reveal = (1 - playerDrag.clamp(0.0, _collapsedPlayerOffset()) /
-      _collapsedPlayerOffset()).clamp(0.0, 1.0).toDouble();
     return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [
       buildLibrary(),
-      if (!libraryHome)
-        Positioned.fill(child: IgnorePointer(child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: reveal),
-          duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
-          curve: Curves.easeOutCubic,
-          builder: (_, strength, __) => BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: strength * 7,
-              sigmaY: strength * 7),
-            child: ColoredBox(color: Color.fromRGBO(0, 0, 0, strength * 0.08))),
-        ))),
       if (!libraryHome)
         TweenAnimationBuilder<double>(
           tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset()).toDouble()),
@@ -2970,7 +2931,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           builder: (context, actualOffset, _) {
             final progress = (1 - actualOffset / _collapsedPlayerOffset())
                 .clamp(0.0, 1.0).toDouble();
-            return Transform.translate(offset: Offset(0, actualOffset),
+            // Backdrop blur and player are now derived from the SAME
+            // pixel-position animation; no desynchronized grey sliver.
+            final blur = ((progress - 0.20) / 0.80).clamp(0.0, 1.0).toDouble();
+            return Stack(children: [
+              Positioned.fill(child: IgnorePointer(child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
+                child: ColoredBox(color: Color.fromRGBO(0, 0, 0, blur * 0.065))))),
+              Transform.translate(offset: Offset(0, actualOffset),
               child: ClipRRect(borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(20)), child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
@@ -2978,7 +2946,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 onVerticalDragUpdate: (details) => setState(() => playerDrag =
                   (playerDrag + details.delta.dy).clamp(0.0, _collapsedPlayerOffset()).toDouble()),
                 onVerticalDragEnd: finishPlayerDrag,
-                onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
+                onVerticalDragCancel: () => setState(() { draggingPlayer = false; }),
                 child: Stack(children: [
                   buildPlayer(expansion: progress),
                   if (progress < 0.5)
@@ -2997,11 +2965,89 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                             color: GoogleLetterPalette.ink),
                         )))),
                 ]),
-              )));
+              ))),
+            ]);
           },
         ),
     ]));
   }
+}
+
+/// Rounded heavy strokes avoid the sharp hairline glyphs on a compact screen.
+class ChunkyShuffleIcon extends StatelessWidget {
+  const ChunkyShuffleIcon({super.key});
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    size: const Size(29, 29),
+    painter: _ChunkyTransportPainter(
+      color: IconTheme.of(context).color ?? GoogleLetterPalette.ink,
+      kind: 0));
+}
+
+class ChunkyRepeatIcon extends StatelessWidget {
+  final bool one;
+  const ChunkyRepeatIcon({super.key, required this.one});
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    size: const Size(29, 29),
+    painter: _ChunkyTransportPainter(
+      color: IconTheme.of(context).color ?? GoogleLetterPalette.ink,
+      kind: one ? 2 : 1));
+}
+
+class _ChunkyTransportPainter extends CustomPainter {
+  final Color color;
+  final int kind;
+  const _ChunkyTransportPainter({required this.color, required this.kind});
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 29, size.height / 29);
+    final paint = Paint()..color = color..style = PaintingStyle.stroke
+      ..strokeWidth = 3.6..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    if (kind == 0) {
+      final path = Path()
+        ..moveTo(3.5, 7.5)..lineTo(7, 7.5)
+        ..quadraticBezierTo(12, 7.5, 15, 14.5)
+        ..quadraticBezierTo(19, 22, 22.5, 22)
+        ..lineTo(25.5, 22)
+        ..moveTo(22, 18.3)..lineTo(25.5, 22)..lineTo(22, 25.7)
+        ..moveTo(3.5, 22)..lineTo(7, 22)
+        ..quadraticBezierTo(12, 22, 15, 14.5)
+        ..quadraticBezierTo(19, 7.5, 22.5, 7.5)
+        ..lineTo(25.5, 7.5)
+        ..moveTo(22, 3.8)..lineTo(25.5, 7.5)..lineTo(22, 11.2);
+      canvas.drawPath(path, paint);
+    } else {
+      final loop = Path()
+        ..moveTo(6, 10)..lineTo(6, 9)
+        ..quadraticBezierTo(6, 5.5, 10, 5.5)
+        ..lineTo(21, 5.5)
+        ..quadraticBezierTo(24.5, 5.5, 24.5, 9)
+        ..lineTo(24.5, 14)
+        ..moveTo(20.7, 10.5)..lineTo(24.5, 14)..lineTo(27, 10.5)
+        ..moveTo(23, 19)..lineTo(23, 20)
+        ..quadraticBezierTo(23, 24.2, 19.2, 24.2)
+        ..lineTo(8, 24.2)
+        ..quadraticBezierTo(4.5, 24.2, 4.5, 20.7)
+        ..lineTo(4.5, 15)
+        ..moveTo(1.5, 18.5)..lineTo(4.5, 15)..lineTo(8, 18.5);
+      canvas.drawPath(loop, paint);
+      if (kind == 2) {
+        final textPainter = TextPainter(
+          text: TextSpan(text: '1', style: TextStyle(color: color,
+            fontSize: 14, fontWeight: FontWeight.w900)),
+          textDirection: TextDirection.ltr)..layout();
+        textPainter.paint(canvas, Offset(14.5 - textPainter.width / 2,
+          14.8 - textPainter.height / 2));
+      }
+    }
+    canvas.restore();
+  }
+  @override
+  bool shouldRepaint(covariant _ChunkyTransportPainter old) =>
+    old.color != color || old.kind != kind;
 }
 
 /// A compact actual tuning fork, drawn rather than substituting a music note.
@@ -3089,9 +3135,11 @@ class MiniMusicBarsPainter extends CustomPainter {
       ..strokeWidth = 3.5..strokeCap = StrokeCap.round;
     for (var i = 0; i < 4; i++) {
       final start = i * 11;
-      final group = levels.skip(start).take(11).toList();
-      final strength = group.isEmpty ? 0.0 :
-          group.reduce(math.max).clamp(0.0, 1.0);
+      var strength = 0.0;
+      for (var k = start; k < math.min(start + 11, levels.length); k++) {
+        strength = math.max(strength, levels[k]);
+      }
+      strength = strength.clamp(0.0, 1.0).toDouble();
       final height = active ? 5 + strength * (size.height - 6) : 4.0;
       final x = size.width * (i + 0.5) / 4;
       canvas.drawLine(Offset(x, size.height - height),

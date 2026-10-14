@@ -10,7 +10,6 @@ abstract final class GoogleLetterPalette {
   static const red = Color(0xFFD7523F);
   static const yellow = Color(0xFF8BB4F6); // Former yellow accent: blue.
   static const green = Color(0xFF5AA55D);
-  static const searchGreen = Color(0xFF82C684); // Brighter readable search surface.
   static const ink = Color(0xFF221A1B); // Existing app neutral, not logo gray.
   static const surface = Color(0xFF352729);
   static const dimSurface = Color(0xFF372825);
