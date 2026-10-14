@@ -119,7 +119,7 @@ jobs:
               guard let registrar = self.registrar(forPlugin: "AuraPitchBridge") else {
                 fatalError("AuraPitchBridge registrar unavailable")
               }
-              pitchBridge = AuraPitchBridge(messenger: registrar.messenger())
+              pitchBridge = AuraPitchBridge(messenger: registrar.messenger(), registrar: registrar)
               fileReferences = AuraFileReferences(messenger: registrar.messenger())
               return super.application(application, didFinishLaunchingWithOptions: launchOptions)
             }

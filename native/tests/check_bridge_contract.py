@@ -95,9 +95,10 @@ require("songArtworkThumbnail(files[index])" in dart and
         "class MiniMusicBarsPainter" in dart and
         "Offset(x, size.height - height)" in dart,
         "Tracklist artwork thumbnails and upward-only playing spectrum bars")
-require("libraryRenderEpoch++" in dart and
-        "cacheExtent: files.length <= 20" in dart,
-        "Song list remounts after player dismissal and caches small libraries")
+require("key: const PageStorageKey<String>('persistent-song-library')" in dart and
+        "cacheExtent: files.length <= 20" in dart and
+        "libraryRenderEpoch++" not in dart,
+        "Song list keeps stable scroll identity on minimize and caches small libraries")
 require("ui.ImageFilter.blur(sigmaX: strength * 7" in dart and
         "TweenAnimationBuilder<double>" in dart,
         "Backdrop blur grows smoothly with player expansion")
@@ -152,3 +153,18 @@ require("name: linkedPitchTempo ? 'Tapespeed' : 'Tempo'" in dart and
         "Column(mainAxisSize: MainAxisSize.min" in dart and
         "Text('Fine tuning'" in dart and "Text('Reset pitch & tempo'" in dart,
         "Linked tempo layout self-sizes; fine tuning and reset are distinct actions")
+
+require("void showOutputPicker()" in dart and
+        "UiKitView(viewType: 'auralocal/output-picker')" in dart and
+        "AVRoutePickerView" in bridge and
+        "registrar.register(OutputPickerFactory()" in bridge,
+        "Player routes audio through the genuine iOS output picker")
+require("GoogleLetterPalette.searchGreen" in dart and
+        "EdgeInsets.fromLTRB(16, 8, 16, 8)" in dart,
+        "Search field has lightened green surface and symmetric vertical margins")
+require("wideSheetGrabHandle(sheet)" in dart and
+        "SizedBox(height: 48, width: double.infinity" in dart,
+        "Dialogs and EQ have accessible full-width drag grab zones")
+require("Color.lerp(GoogleLetterPalette.blue" in dart and
+        "((stage - 0.62) / 0.38)" in dart,
+        "Player artwork fades in after the yellow-to-cream transition")

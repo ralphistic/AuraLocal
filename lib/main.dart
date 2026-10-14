@@ -97,7 +97,7 @@ Future<void> main() async {
         foregroundColor: Color(0xFF161515), elevation: 0,
         systemOverlayStyle: SystemUiOverlayStyle.dark),
       inputDecorationTheme: InputDecorationTheme(
-        filled: true, fillColor: GoogleLetterPalette.green,
+        filled: true, fillColor: GoogleLetterPalette.searchGreen,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       ),
     ),
@@ -120,7 +120,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final trackMetadata = <String, Map<String, String>>{};
   final embeddedArt = <String, Uint8List?>{};
   final localThumbnailBytes = <String, Uint8List>{};
-  int libraryRenderEpoch = 0;
   final eqGains = List<double>.filled(10, 0);
   final customEqPresets = <String, List<double>>{};
   bool eqEnabled = false;
@@ -237,6 +236,30 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // The iOS audio session owns playback lifecycle; hiding this widget must not
     // accidentally stop audio playing in the background.
     super.dispose();
+  }
+
+  void showOutputPicker() {
+    showModalBottomSheet<void>(context: context,
+      backgroundColor: GoogleLetterPalette.cream,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 25),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Audio output', style: TextStyle(
+            color: GoogleLetterPalette.ink, fontSize: 23,
+            fontWeight: FontWeight.w900)),
+          const SizedBox(height: 15),
+          Text(listeningOutput.isEmpty ? 'Current output' : listeningOutput,
+            style: const TextStyle(fontSize: 16,
+              color: GoogleLetterPalette.ink, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          const Text('Choose another speaker or headphones using the iOS output picker.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: GoogleLetterPalette.creamText)),
+          const SizedBox(height: 15),
+          SizedBox(height: 62, width: 170,
+            child: UiKitView(viewType: 'auralocal/output-picker')),
+        ]))));
   }
 
   Future<void> refreshOutputInfo() async {
@@ -1052,6 +1075,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       query = ''; favoritesOnly = false; activePlaylist = null;
       libraryPlaylistsPage = false;
     });
+    // Preserve the existing song directory and scroll position when returning
+    // from Now Playing; do not remount the entire list after each minimize.
     dismissPlayer();
   }
 
@@ -1069,7 +1094,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     Future.delayed(const Duration(milliseconds: 310), () {
       if (mounted && dismissingPlayer) setState(() {
         libraryHome = true; playerDrag = 0; dismissingPlayer = false;
-        libraryRenderEpoch++;
       });
     });
   }
@@ -1239,6 +1263,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     showBlurredActionSheet((sheet) => Padding(
         padding: const EdgeInsets.fromLTRB(15, 15, 15, 22),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          wideSheetGrabHandle(sheet),
           _settingsSection('Track actions', [
             _settingsOption(label: favorites.contains(path)
                 ? 'Remove from Favorites' : 'Add to Favorites',
@@ -1569,7 +1594,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       isScrollControlled: true,
       backgroundColor: GoogleLetterPalette.cream,
       enableDrag: false, // EQ pan gestures must not dismiss the sheet.
-      showDragHandle: true,
+      showDragHandle: false,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, refresh) {
           const accent = activeEqAccent;
@@ -1580,6 +1605,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
                 child: Column(children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onVerticalDragEnd: (details) {
+                      if ((details.primaryVelocity ?? 0) > 280) Navigator.pop(sheetContext);
+                    },
+                    child: SizedBox(height: 48, width: double.infinity,
+                      child: Center(child: Container(width: 62, height: 6,
+                        decoration: BoxDecoration(color: GoogleLetterPalette.creamDivider,
+                          borderRadius: BorderRadius.circular(8)))))),
                   Row(children: [
                     const Icon(Icons.equalizer_rounded, color: accent, size: 27),
                     const SizedBox(width: 12),
@@ -2323,6 +2357,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       ]));
   }
 
+  Widget wideSheetGrabHandle(BuildContext sheet) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onVerticalDragEnd: (details) {
+      if ((details.primaryVelocity ?? 0) > 260) Navigator.pop(sheet);
+    },
+    child: SizedBox(height: 35, width: double.infinity,
+      child: Center(child: Container(height: 6, width: 62,
+        decoration: BoxDecoration(color: GoogleLetterPalette.creamDivider,
+          borderRadius: BorderRadius.circular(8))))));
+
   Widget _settingsOption({required String label, required IconData icon,
       required Color accent, required VoidCallback onTap, String? detail}) =>
     ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
@@ -2445,6 +2489,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     showBlurredActionSheet((sheet) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          wideSheetGrabHandle(sheet),
           const Align(alignment: Alignment.centerLeft,
             child: Padding(padding: EdgeInsets.fromLTRB(8, 8, 8, 15),
               child: Text('Add to your library', style: TextStyle(
@@ -2488,7 +2533,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       body: SafeArea(bottom: false, child: Column(children: [
         // No colored stripe: clean mustard header against cream library.
         ColoredBox(color: GoogleLetterPalette.cream,
-          child: Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: SizedBox(height: 46, child: TextField(
           style: const TextStyle(fontSize: 14, color: Colors.white,
             fontWeight: FontWeight.w700),
@@ -2610,7 +2655,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
               ]))
           : ListView.builder(primary: false,
-              key: ValueKey('full-library-$libraryRenderEpoch-${files.length}-${query.isEmpty && activePlaylist == null && !favoritesOnly ? 'all' : 'filtered'}'),
+              key: const PageStorageKey<String>('persistent-song-library'),
               cacheExtent: files.length <= 20 ? 12000 : 700,
               physics: const ClampingScrollPhysics(),
               itemCount: matches.length, itemBuilder: (_, row) {
@@ -2671,9 +2716,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   if (mounted) {
                     // A transient, partially saved filter must never make the
                     // song library appear wiped when this player closes.
-                    query = ''; favoritesOnly = false; activePlaylist = null;
-                    libraryPlaylistsPage = false;
-                    searchController.clear();
+                    if (query.isNotEmpty || favoritesOnly || activePlaylist != null || libraryPlaylistsPage) {
+                      setState(() {
+                        query = ''; favoritesOnly = false; activePlaylist = null;
+                        libraryPlaylistsPage = false;
+                      });
+                      searchController.clear();
+                    }
                     showPlayer();
                   }
                 },
@@ -2723,15 +2772,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         .clamp(0.0, 1.0).toDouble();
     // The mini-player itself expands: its mustard surface gradually becomes
     // the cream player rather than a separate cream sheet arriving from below.
+    final transition = ((stage - 0.08) / 0.58).clamp(0.0, 1.0).toDouble();
     final surface = Color.lerp(GoogleLetterPalette.blue,
-        GoogleLetterPalette.cream, Curves.easeInOut.transform(stage))!;
+        GoogleLetterPalette.cream, Curves.easeInOut.transform(transition))!;
     final effectivePosition = draggingSeek && scrubPosition != null ? scrubPosition! : positionSeconds;
     final maximum = math.max(durationSeconds, 0.001);
     return Scaffold(
       backgroundColor: surface,
       appBar: AppBar(
         backgroundColor: surface,
-        toolbarOpacity: stage,
+        toolbarOpacity: ((stage - 0.6) / 0.4).clamp(0.0, 1.0).toDouble(),
         foregroundColor: GoogleLetterPalette.ink,
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
@@ -2754,7 +2804,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ],
       ),
       body: IgnorePointer(ignoring: stage < 0.92,
-        child: Opacity(opacity: stage, child: SafeArea(
+        child: Opacity(opacity: ((stage - 0.62) / 0.38).clamp(0.0, 1.0).toDouble(),
+          child: SafeArea(
         child: LayoutBuilder(builder: (context, viewport) =>
         Stack(children: [ListView(
           key: const PageStorageKey<String>('now-playing-content'),
@@ -2792,7 +2843,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               IconButton(tooltip: 'Favorite',
                 onPressed: () => toggleFavorite(files[currentIndex]),
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                  color: GoogleLetterPalette.blue)),
+                  color: GoogleLetterPalette.red)),
           ]),
           if (currentIndex >= 0 && currentIndex < files.length &&
               (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty)
@@ -2801,6 +2852,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700,
                   color: GoogleLetterPalette.creamText, fontSize: 15))),
+          TextButton.icon(onPressed: showOutputPicker,
+            icon: const Icon(Icons.airplay_rounded, size: 22),
+            label: Text(listeningOutput.isEmpty ? 'Choose audio output' :
+              'Output: $listeningOutput', maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+            style: TextButton.styleFrom(foregroundColor: GoogleLetterPalette.ink)),
           AnimatedSwitcher(duration: const Duration(milliseconds: 360),
             transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
             child: listeningOutput.isEmpty ? const SizedBox(height: 12, key: ValueKey('empty-route')) :

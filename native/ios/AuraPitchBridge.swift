@@ -16,8 +16,49 @@ final class AuraPitchBridge {
     private var displayedArtist: String?
     private var lastInfoUpdate = Date.distantPast
 
-    init(messenger: FlutterBinaryMessenger) {
+    #if os(iOS)
+    private final class OutputPickerFactory: NSObject, FlutterPlatformViewFactory {
+        func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+            FlutterStandardMessageCodec.sharedInstance()
+        }
+        func create(withFrame frame: CGRect, viewIdentifier viewId: Int64,
+                    arguments args: Any?) -> FlutterPlatformView {
+            OutputPickerView(frame: frame)
+        }
+    }
+
+    private final class OutputPickerView: NSObject, FlutterPlatformView {
+        private let picker: UIView
+        init(frame: CGRect) {
+            // AVRoutePickerView invokes Apple's standard AirPlay/Bluetooth route
+            // sheet. iOS owns which nearby or paired outputs can be selected.
+            let route = AVRoutePickerView(frame: frame)
+            route.activeTintColor = UIColor(red: 0.34, green: 0.64, blue: 0.36, alpha: 1)
+            route.tintColor = UIColor.darkGray
+            route.prioritizesVideoDevices = false
+            let container = UIView(frame: frame)
+            container.backgroundColor = .clear
+            route.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(route)
+            NSLayoutConstraint.activate([
+                route.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                route.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                route.widthAnchor.constraint(equalToConstant: 54),
+                route.heightAnchor.constraint(equalToConstant: 54),
+            ])
+            picker = container
+        }
+        func view() -> UIView { picker }
+    }
+    #endif
+
+    init(messenger: FlutterBinaryMessenger, registrar: FlutterPluginRegistrar? = nil) {
         channel = FlutterMethodChannel(name: "auralocal/native_dsp", binaryMessenger: messenger)
+        #if os(iOS)
+        if let registrar = registrar {
+            registrar.register(OutputPickerFactory(), withId: "auralocal/output-picker")
+        }
+        #endif
         graph.onFinished = { [weak self] in self?.handleFinished() }
         registerRemoteCommands()
         NotificationCenter.default.addObserver(self, selector: #selector(audioInterrupted(_:)),
