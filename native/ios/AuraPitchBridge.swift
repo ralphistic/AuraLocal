@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import MediaPlayer
 import AVFoundation
+import AVKit
 
 /// One transport, one AVAudioEngine and one file player. Flutter never opens audio output.
 final class AuraPitchBridge {
