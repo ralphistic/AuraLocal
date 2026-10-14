@@ -2600,8 +2600,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               if (mounted) setState(() { draggingSeek = false; scrubPosition = null; });
             })),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(clock(effectivePosition), style: const TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.68))),
-            Text(clock(durationSeconds), style: const TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.68))),
+            Text(clock(effectivePosition), style: TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.68))),
+            Text(clock(durationSeconds), style: TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.68))),
           ])),
           const SizedBox(height: 10),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
