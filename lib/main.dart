@@ -736,10 +736,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     try {
       final picked = await fileReferences.invokeListMethod<dynamic>('pickInPlace');
       if (picked == null) return;
-      if (picked.isEmpty) {
-        if (mounted) setState(() => error = 'Files returned no songs. Try Copy music into app from the menu.');
-        return;
-      }
+      if (picked.isEmpty) return; // User closed Files without selecting audio.
       var added = 0;
       for (final raw in picked) {
         if (raw is! Map || raw['path'] is! String) continue;
@@ -1354,10 +1351,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     scheduleEQUpdate();
   }
 
+  int? activeEqBand;
+
   void updateCurve(Offset point, Size size, StateSetter refresh) {
     if (size.width <= 0 || size.height <= 0) return;
-    // Dots in the equalizer align to the center of each of 10 columns.
-    final index = ((point.dx / size.width) * 10 - 0.5).round().clamp(0, 9);
+    final index = activeEqBand ??
+        ((point.dx / size.width) * 10 - 0.5).round().clamp(0, 9);
     final gain = (12 - point.dy / size.height * 24).clamp(-12.0, 12.0);
     setManualEQBand(index, gain.toDouble(), refresh);
   }
@@ -1367,7 +1366,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF352729),
-      showDragHandle: true,
+      enableDrag: false,
+      showDragHandle: false,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, refresh) {
           const accent = activeEqAccent;
@@ -1419,19 +1419,20 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       child: TextButton.icon(onPressed: () => deleteCustomEQPreset(eqPreset, refresh),
                         icon: const Icon(Icons.delete_outline_rounded), label: const Text('Delete preset'))),
                   const SizedBox(height: 6),
-                  SizedBox(height: 86, child: ValueListenableBuilder<List<double>>(
-                    valueListenable: waveformLevels,
-                    builder: (_, levels, __) => CustomPaint(
-                      size: const Size(double.infinity, 86),
-                      painter: LiveWaveformPainter(levels, isPlaying: isPlaying)))),
-                  const Text('Live frequency spectrum (bass to treble)',
+                  const SizedBox(height: 12),
+                  const Text('Drag a dot up to boost, down to cut',
                     style: TextStyle(color: Colors.white70, fontSize: 12)),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 14),
                   Expanded(child: LayoutBuilder(builder: (_, bounds) =>
                     GestureDetector(behavior: HitTestBehavior.opaque,
-                      onPanDown: (details) => updateCurve(details.localPosition, bounds.biggest, refresh),
+                      onPanStart: (details) {
+                        activeEqBand = ((details.localPosition.dx / bounds.maxWidth) * 10 - 0.5)
+                            .round().clamp(0, 9);
+                        updateCurve(details.localPosition, bounds.biggest, refresh);
+                      },
                       onPanUpdate: (details) => updateCurve(details.localPosition, bounds.biggest, refresh),
-                      onPanEnd: (_) => applyNativeEQ(),
+                      onPanEnd: (_) { activeEqBand = null; applyNativeEQ(); },
+                      onPanCancel: () => activeEqBand = null,
                       child: CustomPaint(size: bounds.biggest,
                         painter: EditableEqCurvePainter(gains: List.of(eqGains), accent: accent)))),
                   ),
@@ -1910,66 +1911,68 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     if (mounted) setState(() {});
   }
 
+  void showLibraryOptionsPane() {
+    showGeneralDialog<void>(context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close library options',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
+        alignment: Alignment.centerRight,
+        child: SafeArea(left: false, child: Material(color: const Color(0xFF352729),
+          child: SizedBox(width: MediaQuery.sizeOf(dialogContext).width * 0.84,
+            height: double.infinity,
+            child: ListView(padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              children: [
+                Row(children: [
+                  const Expanded(child: Text('Library options',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800))),
+                  IconButton(tooltip: 'Close options', icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(dialogContext)),
+                ]),
+                const Divider(),
+                ListTile(leading: const Icon(Icons.link_rounded),
+                  title: const Text('Link originals from Files'),
+                  subtitle: const Text('No duplicate audio copies'),
+                  onTap: () { Navigator.pop(dialogContext); importInPlace(); }),
+                ListTile(leading: const Icon(Icons.file_copy_rounded),
+                  title: const Text('Copy music into app'),
+                  onTap: () { Navigator.pop(dialogContext); import(); }),
+                ListTile(leading: const Icon(Icons.save_alt_rounded),
+                  title: const Text('Export library index'),
+                  onTap: () { Navigator.pop(dialogContext); exportLibraryIndex(); }),
+                ListTile(leading: const Icon(Icons.folder_open_rounded),
+                  title: const Text('Restore library index'),
+                  onTap: () { Navigator.pop(dialogContext); restoreLibraryIndex(); }),
+                ListTile(leading: const Icon(Icons.backup_rounded),
+                  title: const Text('Back up library'),
+                  onTap: () { Navigator.pop(dialogContext); exportLibraryBackup(); }),
+                ListTile(leading: const Icon(Icons.restore_rounded),
+                  title: const Text('Restore backup'),
+                  onTap: () { Navigator.pop(dialogContext); restoreLibraryBackup(); }),
+                const Divider(),
+                ListTile(leading: const Icon(Icons.playlist_remove_rounded),
+                  title: const Text('Clear remembered song list'),
+                  subtitle: const Text('Does not delete original music'),
+                  onTap: () { Navigator.pop(dialogContext); clearLibraryList(); }),
+                const Divider(),
+                ListTile(title: Text('AuraLocal Build $auraBuildNumber')),
+              ]))))),
+      ),
+      transitionBuilder: (_, animation, __, child) => SlideTransition(
+        position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+          .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+        child: child));
+  }
+
   Widget buildLibrary() {
     final matches = orderedTrackIndices();
     return Scaffold(
       appBar: AppBar(title: const Text('Your Library'), actions: [
-        IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded), onPressed: createPlaylist),
-        IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add_rounded), onPressed: importInPlace),
-        PopupMenuButton<String>(
-          tooltip: 'Library backup and restore',
-          icon: const Icon(Icons.more_vert_rounded),
-          onSelected: (value) {
-            if (value == 'linkImport') {
-              importInPlace();
-            } else if (value == 'copyImport') {
-              import();
-            } else if (value == 'indexExport') {
-              exportLibraryIndex();
-            } else if (value == 'indexRestore') {
-              restoreLibraryIndex();
-            } else if (value == 'backup') {
-              exportLibraryBackup();
-            } else if (value == 'restore') {
-              restoreLibraryBackup();
-            } else if (value == 'clearList') {
-              clearLibraryList();
-            }
-          },
-          itemBuilder: (_) => [
-            const PopupMenuItem<String>(enabled: false, value: 'version',
-              child: ListTile(leading: Icon(Icons.info_outline),
-                title: Text('AuraLocal Build $auraBuildNumber'))),
-            const PopupMenuItem(value: 'clearList',
-              child: ListTile(leading: Icon(Icons.playlist_remove),
-                title: Text('Clear remembered song list'),
-                subtitle: Text('Keep original files; start with a clean list'))),
-            const PopupMenuItem(value: 'linkImport',
-              child: ListTile(leading: Icon(Icons.link),
-                title: Text('Link originals from Files'),
-                subtitle: Text('No duplicate audio copies'))),
-            const PopupMenuItem(value: 'copyImport',
-              child: ListTile(leading: Icon(Icons.file_copy_outlined),
-                title: Text('Copy music into app'),
-                subtitle: Text('Optional offline copies'))),
-            const PopupMenuItem(value: 'indexExport',
-              child: ListTile(leading: Icon(Icons.save_alt),
-                title: Text('Export library index (no audio)'),
-                subtitle: Text('Save song list and settings to Files'))),
-            const PopupMenuItem(value: 'indexRestore',
-              child: ListTile(leading: Icon(Icons.folder_open),
-                title: Text('Restore library index'),
-                subtitle: Text('Relink originals after reinstall'))),
-            const PopupMenuItem(value: 'backup',
-              child: ListTile(leading: Icon(Icons.backup_outlined),
-                title: Text('Back up library'),
-                subtitle: Text('Save music & playlists to Files'))),
-            const PopupMenuItem(value: 'restore',
-              child: ListTile(leading: Icon(Icons.restore),
-                title: Text('Restore backup'),
-                subtitle: Text('Import an AuraLocal backup ZIP'))),
-          ],
-        ),
+        IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
+        IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add_circle_rounded, size: 27), onPressed: importInPlace),
+        IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_horiz_rounded, size: 29),
+          onPressed: showLibraryOptionsPane),
       ]),
       body: SafeArea(bottom: false, child: Column(children: [
         Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8), child: SizedBox(height: 38, child: TextField(
@@ -2110,7 +2113,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             margin: EdgeInsets.zero,
             decoration: const BoxDecoration(color: Color(0xFF5D3031),
               borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-            child: ListTile(
+            child: Padding(padding: EdgeInsets.fromLTRB(12, 0, 12,
+              MediaQuery.paddingOf(context).bottom), child: ListTile(
             leading: const Icon(Icons.graphic_eq_rounded, color: Color(0xFFFFB8A5)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
             onTap: showPlayer,
@@ -2120,7 +2124,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   key: ValueKey(isPlaying))),
               onPressed: togglePlayback,
             ),
-          ),
+          )),
           ),
         ),
         if (isLibraryExporting || isLibraryRestoring)
@@ -2144,9 +2148,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
         titleSpacing: 0,
         actions: [
-          IconButton(tooltip: 'Equalizer', icon: const Icon(Icons.equalizer_rounded),
-            color: eqEnabled ? activeEqAccent : Colors.white,
-            onPressed: showEqualizer),
+          TextButton.icon(onPressed: showEqualizer,
+            icon: const Icon(Icons.tune_rounded, size: 24),
+            label: const Text('EQ', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
           PopupMenuButton<String>(tooltip: 'More player actions',
             onSelected: (value) {
               if (value == 'queue') showQueue();
