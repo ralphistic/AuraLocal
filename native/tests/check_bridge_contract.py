@@ -177,7 +177,7 @@ require("Color.lerp(GoogleLetterPalette.blue" in dart and
 
 require("onVerticalDragStart: (_) => startMiniSwipe()" in dart and
         "ignoring: !libraryHome" in dart and
-        "opacity: libraryHome ? 1.0 : 0.0" in dart and
+        "opacity: libraryHome || dismissingPlayer ? 1.0 : 0.0" in dart and
         "if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(" in dart,
         "MiniPlayer recognizer remains mounted throughout opening swipe")
 require("math.exp(-dt / responseTime)" in dart and
@@ -227,3 +227,8 @@ require("SizedBox(height: 42, child: Padding(" in dart and
 require("child: GestureDetector(" in dart and
         "onVerticalDragEnd: finishPlayerDrag" in dart,
         "Album art has its own full-width dismiss swipe recognizer")
+
+require("Opacity(opacity: dismissingPlayer" in dart and
+        "(progress / 0.12).clamp(0.0, 1.0)" in dart and
+        "opacity: libraryHome || dismissingPlayer ? 1.0 : 0.0" in dart,
+        "Player crossfades into existing footer without abrupt text replacement")

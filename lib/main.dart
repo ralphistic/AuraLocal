@@ -306,7 +306,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           waveformTarget = values.map((v) => (v as num).toDouble().clamp(0.0, 1.0).toDouble()).toList();
         }
       }
-      applyNativeState(response, repaint: !libraryHome || tick % 5 == 0);
+      applyNativeState(response, repaint: (!libraryHome && !dismissingPlayer) || tick % 5 == 0);
     } on PlatformException catch (e) {
       if (mounted && error == null) setState(() => error = 'Native audio: ${e.message}');
     } finally {
@@ -2710,6 +2710,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       });
                       searchController.clear();
                     }
+                    // When selecting the final row, the list may have been
+                    // scrolled beyond the newly laid-out viewport. Keep it
+                    // genuinely visible when the fullscreen player closes.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted && libraryScroll.hasClients) {
+                        final max = libraryScroll.position.maxScrollExtent;
+                        final target = libraryScroll.offset.clamp(0.0, max).toDouble();
+                        if (libraryScroll.offset != target) libraryScroll.jumpTo(target);
+                      }
+                    });
                     showPlayer();
                   }
                 },
@@ -2719,7 +2729,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ])))),
         if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(
           ignoring: !libraryHome,
-          child: Opacity(opacity: libraryHome ? 1.0 : 0.0,
+          child: Opacity(opacity: libraryHome || dismissingPlayer ? 1.0 : 0.0,
             child: ColoredBox(
           color: GoogleLetterPalette.cream, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -2950,11 +2960,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
           curve: Curves.easeOutCubic,
           onEnd: () {
-            if (mounted && dismissingPlayer) setState(() {
-              libraryHome = true;
-              playerDrag = 0;
-              dismissingPlayer = false;
-            });
+            if (mounted && dismissingPlayer) {
+              setState(() {
+                libraryHome = true;
+                playerDrag = 0;
+                dismissingPlayer = false;
+              });
+            }
           },
           builder: (context, actualOffset, _) {
             final progress = (1 - actualOffset / _collapsedPlayerOffset())
@@ -2966,7 +2978,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               Positioned.fill(child: IgnorePointer(child: BackdropFilter(
                 filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
                 child: const SizedBox.expand()))),
-              Transform.translate(offset: Offset(0, actualOffset),
+              Opacity(opacity: dismissingPlayer
+                ? (progress / 0.12).clamp(0.0, 1.0).toDouble() : 1.0,
+                child: Transform.translate(offset: Offset(0, actualOffset),
               child: ClipRRect(borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(20)), child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
@@ -2980,7 +2994,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   // No duplicate mini-player overlay: the persistent footer
                   // beneath this page is the sole compact visual source.
                 ]),
-              ))),
+              )))),
             ]);
           },
         ),
