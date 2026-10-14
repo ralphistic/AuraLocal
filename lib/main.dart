@@ -1368,8 +1368,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             const SizedBox(width: 48),
           ]),
           const Row(children: [
-            if (!linkedPitchTempo) Expanded(child: Center(child: Text('Semitones'))),
-            if (!linkedPitchTempo) Expanded(child: Center(child: Text('Cents'))),
+            Expanded(child: Center(child: Text('Semitones'))),
+            Expanded(child: Center(child: Text('Cents'))),
           ]),
           Expanded(child: Row(children: [
             Expanded(child: CupertinoPicker(
@@ -1752,11 +1752,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
               const SizedBox(width: 48),
             ]),
-            const Row(children: [
+            Row(children: [
               Expanded(child: Center(child: Text(linkedPitchTempo ? 'Tapespeed' : 'Tempo'))),
-              Expanded(child: Center(child: Text('Semitones'))),
-              Expanded(child: Center(child: Text('Cents'))),
-              Expanded(child: Center(child: Text('Preamp'))),
+              if (!linkedPitchTempo) const Expanded(child: Center(child: Text('Semitones'))),
+              if (!linkedPitchTempo) const Expanded(child: Center(child: Text('Cents'))),
+              const Expanded(child: Center(child: Text('Preamp'))),
             ]),
             Expanded(child: Row(children: [
               Expanded(child: CupertinoPicker(
@@ -2834,7 +2834,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ))),
       if (!libraryHome)
         TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset())),
+          tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset()).toDouble()),
           duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
           curve: Curves.easeOutCubic,
           builder: (context, actualOffset, _) {

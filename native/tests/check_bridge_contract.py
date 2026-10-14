@@ -118,7 +118,7 @@ require("if (!linkedPitchTempo)" in dart and
         "name: linkedPitchTempo ? 'Tapespeed' : 'Tempo'" in dart,
         "Linked pitch/tempo collapses Pitch and renames the remaining slider Tapespeed")
 require("Text('Cents')" in dart and "Text('Semitones')" in dart and
-        "if (!linkedPitchTempo) Expanded(child: Center(child: Text('Cents')))" in dart and
+        "if (!linkedPitchTempo) const Expanded(child: Center(child: Text('Cents')))" in dart and
         "Text(linkedPitchTempo ? 'Tapespeed' : 'Tempo')" in dart,
         "Precision tuning shows four wheels unlinked or Tapespeed and Preamp linked")
 require("child: Text(displayName(files[index]), maxLines: 1" in dart,
