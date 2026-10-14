@@ -101,7 +101,9 @@ class _AuraDraggableSheetState extends State<_AuraDraggableSheet> {
               top: Radius.circular(26)),
             child: ConstrainedBox(constraints: BoxConstraints(
                 maxHeight: height * 0.94),
-              child: ColoredBox(color: widget.color,
+              // ListTile ink and highlights require an actual Material surface
+              // at the sheet background, not a ColoredBox in front of it.
+              child: Material(color: widget.color,
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   GestureDetector(key: const Key('aura-sheet-grab-zone'),
                     behavior: HitTestBehavior.opaque,

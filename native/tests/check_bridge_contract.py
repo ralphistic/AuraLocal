@@ -171,8 +171,9 @@ require("Key('aura-sheet-grab-zone')" in surfaces and
         "distance > 110" in surfaces,
         "All bottom sheets follow the finger via a full-width drag zone")
 require("Color.lerp(GoogleLetterPalette.blue" in dart and
-        "((stage - 0.62) / 0.38)" in dart,
-        "Player artwork fades in after the yellow-to-cream transition")
+        "((stage - 0.03) / 0.32)" in dart and
+        "((stage - 0.32) / 0.53)" in dart,
+        "Warm yellow becomes cream early and artwork and EQ text fade together")
 
 require("onVerticalDragStart: (_) => startMiniSwipe()" in dart and
         "ignoring: !libraryHome" in dart and
@@ -192,3 +193,11 @@ require("onTap: showOutputPicker" in dart and
         "Existing audio route codec information is the sole output picker trigger")
 require("test/blurred_surfaces_test.dart" in workflow,
         "Finger tracking and backdrop blur are covered by Flutter widget tests")
+
+require("onEnd: () {" in dart and "if (mounted && dismissingPlayer)" in dart and
+        "Future.delayed(const Duration(milliseconds: 355)" not in dart and
+        "Only the outer player recognizer owns drag-to-minimize" in dart,
+        "Player collapse waits for actual animation completion and has one drag owner")
+
+require("child: Material(color: widget.color" in surfaces,
+        "ListTiles render ink on their nearest Material inside blurred sheets")

@@ -1098,12 +1098,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   void dismissPlayer() {
     if (libraryHome || dismissingPlayer) return;
     final collapsed = _collapsedPlayerOffset();
+    // Completion is driven by the actual animated pixel position, not a
+    // competing timer that can hide the player before it reaches the footer.
     setState(() { dismissingPlayer = true; draggingPlayer = false; playerDrag = collapsed; });
-    Future.delayed(const Duration(milliseconds: 355), () {
-      if (mounted && dismissingPlayer) setState(() {
-        libraryHome = true; playerDrag = 0; dismissingPlayer = false;
-      });
-    });
   }
 
   void showPlayer() {
@@ -2745,7 +2742,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         .clamp(0.0, 1.0).toDouble();
     // The mini-player itself expands: its mustard surface gradually becomes
     // the cream player rather than a separate cream sheet arriving from below.
-    final transition = ((stage - 0.08) / 0.58).clamp(0.0, 1.0).toDouble();
+    final transition = ((stage - 0.03) / 0.32).clamp(0.0, 1.0).toDouble();
     final surface = Color.lerp(GoogleLetterPalette.blue,
         GoogleLetterPalette.cream, Curves.easeInOut.transform(transition))!;
     final effectivePosition = draggingSeek && scrubPosition != null ? scrubPosition! : positionSeconds;
@@ -2754,7 +2751,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       backgroundColor: surface,
       appBar: AppBar(
         backgroundColor: surface,
-        toolbarOpacity: ((stage - 0.6) / 0.4).clamp(0.0, 1.0).toDouble(),
+        toolbarOpacity: ((stage - 0.32) / 0.53).clamp(0.0, 1.0).toDouble(),
         foregroundColor: GoogleLetterPalette.ink,
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
@@ -2762,7 +2759,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
         titleSpacing: 0,
         actions: [
-          Opacity(opacity: ((stage - 0.62) / 0.38).clamp(0.0, 1.0).toDouble(),
+          Opacity(opacity: ((stage - 0.32) / 0.53).clamp(0.0, 1.0).toDouble(),
             child: TextButton(onPressed: showEqualizer,
               child: const Text('EQ', style: TextStyle(color: GoogleLetterPalette.ink,
                 fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 0.8)))),
@@ -2778,7 +2775,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ],
       ),
       body: IgnorePointer(ignoring: stage < 0.92,
-        child: Opacity(opacity: ((stage - 0.62) / 0.38).clamp(0.0, 1.0).toDouble(),
+        child: Opacity(opacity: ((stage - 0.32) / 0.53).clamp(0.0, 1.0).toDouble(),
           child: SafeArea(
         child: LayoutBuilder(builder: (context, viewport) =>
         Stack(children: [ListView(
@@ -2788,14 +2785,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           children: [
           SizedBox(height: math.max(8.0, viewport.maxHeight * 0.015)),
           SizedBox(height: math.min(viewport.maxHeight * 0.46, 410),
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
-              onVerticalDragUpdate: (details) => setState(() => playerDrag =
-                (playerDrag + details.delta.dy).clamp(0.0, _collapsedPlayerOffset()).toDouble()),
-              onVerticalDragEnd: finishPlayerDrag,
-              onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
-              child: Center(child: LayoutBuilder(builder: (_, bounds) {
+            // Only the outer player recognizer owns drag-to-minimize.
+            // A second inner gesture previously canceled the parent and
+            // forced playerDrag to zero, causing the recorded snap-back.
+            child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
@@ -2806,7 +2799,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               key: ValueKey(path), trackName: displayName(path),
               metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
               onSave: (data) => saveTrackMetadata(path, data)));
-          })))),
+          }))),
           const SizedBox(height: 14),
           Row(children: [
             Expanded(child: SizedBox(height: 43, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)))),
@@ -2928,6 +2921,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset()).toDouble()),
           duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
           curve: Curves.easeOutCubic,
+          onEnd: () {
+            if (mounted && dismissingPlayer) setState(() {
+              libraryHome = true;
+              playerDrag = 0;
+              dismissingPlayer = false;
+            });
+          },
           builder: (context, actualOffset, _) {
             final progress = (1 - actualOffset / _collapsedPlayerOffset())
                 .clamp(0.0, 1.0).toDouble();
