@@ -42,7 +42,7 @@ void main() {
     expect(find.text('Album'), findsOneWidget);
     // Advanced fields are intentionally tucked into an expandable section
     // so the editor is not overcrowded on an iPhone screen.
-    await tester.tap(find.text('TRACK INFORMATION'));
+    await tester.tap(find.text('Track Information'));
     await tester.pumpAndSettle();
     expect(find.text('Release date'), findsOneWidget);
     expect(find.text('Genre'), findsOneWidget);
