@@ -196,15 +196,16 @@ require("test/blurred_surfaces_test.dart" in workflow,
 
 require("onEnd: () {" in dart and "if (mounted && dismissingPlayer)" in dart and
         "Future.delayed(const Duration(milliseconds: 355)" not in dart and
-        "Only the outer player recognizer owns drag-to-minimize" in dart,
-        "Player collapse waits for actual animation completion and has one drag owner")
+        "onVerticalDragEnd: finishPlayerDrag" in dart,
+        "Player collapse waits for actual animation completion; artwork and page can drag")
 
 require("child: Material(color: widget.color" in surfaces,
         "ListTiles render ink on their nearest Material inside blurred sheets")
 
 require("final ScrollController libraryScroll = ScrollController();" in dart and
         "controller: libraryScroll" in dart and
-        "IgnorePointer(ignoring: !libraryHome, child: buildLibrary())" in dart,
+        "IgnorePointer(ignoring: !libraryHome," in dart and
+        "child: RepaintBoundary(child: buildLibrary())" in dart,
         "Library scroll position is preserved, clamped, and cannot intercept player touches")
 require("BorderRadius.circular(26)" in surfaces and
         "BorderRadius.vertical(" not in surfaces,
@@ -215,3 +216,14 @@ require("Center(child: builder(page))" in surfaces and
 require("if repeatMode == 2 && currentIndex >= 0" in bridge and
         "if repeatMode == 2 && delta > 0 { return currentIndex }" not in bridge,
         "Repeat-one only applies to natural track completion, not manual skip")
+
+require("child: RepaintBoundary(child: buildLibrary())" in dart and
+        "if (progress < 0.5)" not in dart and
+        "child: const SizedBox.expand()" in dart,
+        "Library repainting isolated and duplicated mini-preview removed from player")
+require("SizedBox(height: 42, child: Padding(" in dart and
+        "EdgeInsets.fromLTRB(16, 8, 16, 0)" in dart,
+        "Fixed-height search navigation eliminates uneven lower gap")
+require("child: GestureDetector(" in dart and
+        "onVerticalDragEnd: finishPlayerDrag" in dart,
+        "Album art has its own full-width dismiss swipe recognizer")

@@ -186,6 +186,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   bool pollBusy = false;
   int tick = 0;
   double playerDrag = 0;
+  // The mini footer retains its gesture recognizer during every transition.
+  // The full player floats above the same footer without a second preview.
   bool draggingPlayer = false;
   bool dismissingPlayer = false;
   double miniSwipeTravel = 0;
@@ -2550,7 +2552,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             displayColor: GoogleLetterPalette.creamText),
         ), child: Column(key: const ValueKey('song-directory'), children: [
         // Compact library navigation: one menu instead of stacked chip rows.
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Row(children: [
+        SizedBox(height: 42, child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(children: [
           PopupMenuButton<String>(
             tooltip: 'Choose music view',
             onSelected: (value) {
@@ -2583,6 +2587,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             color: GoogleLetterPalette.creamText, fontSize: 12)),
           PopupMenuButton<String>(
             tooltip: 'Sort tracks',
+            constraints: const BoxConstraints(minWidth: 190),
             icon: const Icon(Icons.sort, size: 20, color: GoogleLetterPalette.creamText),
             onSelected: chooseLibrarySort,
             itemBuilder: (_) => [
@@ -2602,7 +2607,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ),
             ],
           ),
-        ])),
+        ]))),
         if (files.isNotEmpty && matches.isEmpty)
           Expanded(child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.filter_alt_off, size: 44),
@@ -2721,6 +2726,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragStart: (_) => startMiniSwipe(),
           onVerticalDragUpdate: updateMiniSwipe,
           onVerticalDragEnd: finishMiniSwipe,
+          onVerticalDragCancel: () {
+            if (draggingPlayer) setState(() { draggingPlayer = false; playerDrag = 0; });
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 240),
             margin: EdgeInsets.zero,
@@ -2800,10 +2808,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           children: [
           SizedBox(height: math.max(8.0, viewport.maxHeight * 0.015)),
           SizedBox(height: math.min(viewport.maxHeight * 0.46, 410),
-            // Only the outer player recognizer owns drag-to-minimize.
-            // A second inner gesture previously canceled the parent and
-            // forced playerDrag to zero, causing the recorded snap-back.
-            child: Center(child: LayoutBuilder(builder: (_, bounds) {
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
+              onVerticalDragUpdate: (details) => setState(() => playerDrag =
+                (playerDrag + details.delta.dy).clamp(0.0, _collapsedPlayerOffset()).toDouble()),
+              onVerticalDragEnd: finishPlayerDrag,
+              onVerticalDragCancel: () => setState(() => draggingPlayer = false),
+              child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
@@ -2814,7 +2826,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               key: ValueKey(path), trackName: displayName(path),
               metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
               onSave: (data) => saveTrackMetadata(path, data)));
-          }))),
+          })))),
           const SizedBox(height: 14),
           Row(children: [
             Expanded(child: SizedBox(height: 43, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)))),
@@ -2930,7 +2942,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
     return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [
-      IgnorePointer(ignoring: !libraryHome, child: buildLibrary()),
+      IgnorePointer(ignoring: !libraryHome,
+        child: RepaintBoundary(child: buildLibrary())),
       if (!libraryHome)
         TweenAnimationBuilder<double>(
           tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset()).toDouble()),
@@ -2952,7 +2965,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             return Stack(children: [
               Positioned.fill(child: IgnorePointer(child: BackdropFilter(
                 filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
-                child: ColoredBox(color: Color.fromRGBO(0, 0, 0, blur * 0.065))))),
+                child: const SizedBox.expand()))),
               Transform.translate(offset: Offset(0, actualOffset),
               child: ClipRRect(borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(20)), child: GestureDetector(
@@ -2964,21 +2977,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 onVerticalDragCancel: () => setState(() { draggingPlayer = false; }),
                 child: Stack(children: [
                   buildPlayer(expansion: progress),
-                  if (progress < 0.5)
-                    Positioned(top: 0, left: 0, right: 0,
-                      child: Opacity(opacity: (1 - progress * 2).clamp(0.0, 1.0).toDouble(),
-                        child: SizedBox(height: 74, child: ListTile(
-                          leading: ValueListenableBuilder<List<double>>(
-                            valueListenable: waveformLevels,
-                            builder: (_, levels, __) => SizedBox(width: 26, height: 28,
-                              child: CustomPaint(painter: MiniMusicBarsPainter(
-                                levels: levels, active: isPlaying)))),
-                          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w900,
-                              color: GoogleLetterPalette.ink)),
-                          trailing: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                            color: GoogleLetterPalette.ink),
-                        )))),
+                  // No duplicate mini-player overlay: the persistent footer
+                  // beneath this page is the sole compact visual source.
                 ]),
               ))),
             ]);
