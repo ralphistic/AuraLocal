@@ -1106,6 +1106,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   // Restore the original magnetic, finger-tracked player animation (431aa9e).
   double _collapsedPlayerOffset() {
+    // MediaQuery padding is outside Scaffold's layout, while the MiniPlayer's
+    // 73px ListTile + actual bottom inset is inside. Use the same geometry for
+    // the expanded overlay so its bottom snaps exactly onto the real footer.
     final h = MediaQuery.sizeOf(context).height;
     final bottom = MediaQuery.paddingOf(context).bottom * 0.6;
     return math.max(1.0, h - 73 - bottom);
