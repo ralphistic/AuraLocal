@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'bauhaus_theme.dart';
 import 'package:file_picker/file_picker.dart';
 
 typedef MetadataSave = Future<void> Function(Map<String, String> fields);
@@ -75,9 +76,9 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
             child: ClipRRect(borderRadius: BorderRadius.circular(8),
               child: DecoratedBox(
               decoration: const BoxDecoration(gradient: LinearGradient(
-                colors: [Color(0xFFFFB8A5), Color(0xFFF08078)])),
+                colors: [Bauhaus.paper, Bauhaus.red])),
               child: rear ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Text('Add metadata?', style: TextStyle(color: Color(0xFF221A1B),
+                const Text('Add metadata?', style: TextStyle(color: Bauhaus.ink,
                   fontSize: 21, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 18),
                 FilledButton(onPressed: () => openEditor(context), child: const Text('Enter manually')),
@@ -85,7 +86,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
                 FilledButton.tonal(onPressed: () => findOnline(context), child: const Text('Find online')),
                 const SizedBox(height: 14),
                 const Text('Tap to flip back', style: TextStyle(
-                  fontSize: 11, color: Color(0xFF221A1B))),
+                  fontSize: 11, color: Bauhaus.ink)),
               ]) : _front(),
             )),
           )),
@@ -107,10 +108,10 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
       else if (widget.embeddedArtwork != null) Image.memory(widget.embeddedArtwork!, fit: BoxFit.cover)
       else _generic(),
       if (!hasArtwork) const Positioned(right: 10, bottom: 10,
-        child: Icon(Icons.flip_camera_android, color: Color(0xFF221A1B))),
+        child: Icon(Icons.flip_camera_android, color: Bauhaus.ink)),
     ]);
   }
-  Widget _generic() => const Center(child: Icon(Icons.music_note, size: 115, color: Color(0xFF221A1B)));
+  Widget _generic() => const Center(child: Icon(Icons.music_note, size: 115, color: Bauhaus.ink));
   Future<void> openEditor(BuildContext context, [Map<String, String>? suggestion]) async {
     final fields = {...widget.metadata, ...?suggestion};
     const keys = ['title', 'artist', 'album', 'releaseDate', 'genre',

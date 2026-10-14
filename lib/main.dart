@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'metadata_art.dart';
+import 'bauhaus_theme.dart';
 
 // Replaced with the GitHub Actions run number before every iOS build.
 const String auraBuildNumber = 'DEV';
@@ -64,32 +65,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      fontFamily: 'Josefin',
-      // Tighter, more substantial 1970s-inspired typography throughout.
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.6),
-        displayMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.2),
-        headlineLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.0),
-        headlineMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.8),
-        titleLarge: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.65),
-        titleMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.45),
-        titleSmall: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.3),
-        bodyLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.35),
-        bodyMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.25),
-        bodySmall: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.15),
-        labelLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.35),
-        labelMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.2),
-      ),
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: const Color(0xFF221A1B),
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFF08078), brightness: Brightness.dark),
-      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFFFB8A5), foregroundColor: Color(0xFF161515)),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true, fillColor: const Color(0xFF372825),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      ),
-    ),
+    theme: Bauhaus.theme,
     home: const MusicPage(),
   ));
 }
@@ -122,7 +98,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     'V-shaped': [4, 3, 1, -1, -2, -1, 1, 3, 4, 3],
     'Soft': [1, 1, 0, 0, 0, -1, -2, -2, -2, -1],
   };
-  static const Color activeEqAccent = Color(0xFFF08078);
+  static const Color activeEqAccent = Bauhaus.red;
   Timer? eqDebounce;
   final favorites = <String>{};
   final playlists = <String, List<String>>{};
@@ -1185,7 +1161,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showPitchWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF352729),
+    await showModalBottomSheet<void>(context: context, backgroundColor: Bauhaus.paper,
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 340,
         child: Column(children: [
           Row(children: [
@@ -1225,7 +1201,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> showTempoWheel(StateSetter refresh) async {
-    await showModalBottomSheet<void>(context: context, backgroundColor: const Color(0xFF352729),
+    await showModalBottomSheet<void>(context: context, backgroundColor: Bauhaus.paper,
       isScrollControlled: true, builder: (sheet) => SafeArea(child: SizedBox(height: 330,
         child: Column(children: [
           Row(children: [
@@ -1396,7 +1372,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF352729),
+      backgroundColor: Bauhaus.paper,
       enableDrag: true,
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
@@ -1418,7 +1394,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                         Text('Audio Equalizer', style: TextStyle(
                           fontSize: 21, fontWeight: FontWeight.bold)),
                         Text('Drag the dots to tune bass, mids and treble',
-                          style: TextStyle(fontSize: 12, color: Colors.white70)),
+                          style: TextStyle(fontSize: 12, color: Bauhaus.secondaryText)),
                       ],
                     )),
                     Switch.adaptive(
@@ -1452,7 +1428,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   const SizedBox(height: 6),
                   const SizedBox(height: 12),
                   const Text('Drag a dot up to boost, down to cut',
-                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    style: TextStyle(color: Bauhaus.secondaryText, fontSize: 12)),
                   const SizedBox(height: 14),
                   Expanded(child: LayoutBuilder(builder: (_, bounds) =>
                     GestureDetector(behavior: HitTestBehavior.opaque,
@@ -1471,7 +1447,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [for (final hz in eqFrequencies)
                       Expanded(child: Text(hz, textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 9, color: Colors.white70)))]),
+                        style: const TextStyle(fontSize: 9, color: Bauhaus.secondaryText)))]),
                   const SizedBox(height: 14),
                   Row(children: [
                     Expanded(
@@ -1493,7 +1469,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(eqEnabled ? 'EQ enabled' : 'EQ bypassed',
-                        style: const TextStyle(color: Colors.white70)),
+                        style: const TextStyle(color: Bauhaus.secondaryText)),
                       TextButton.icon(
                         onPressed: () {
                           refresh(() => eqEnabled = !eqEnabled);
@@ -1521,7 +1497,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             const Text('Pitch and tempo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             const Text('Adjust the one native audio engine. Your original FLAC files remain unchanged.',
-              textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+              textAlign: TextAlign.center, style: TextStyle(color: Bauhaus.secondaryText)),
             const SizedBox(height: 14),
             if (linkedPitchTempo) ...[
               TextButton(onPressed: () => showTempoWheel(refresh),
@@ -1946,11 +1922,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     showGeneralDialog<void>(context: context,
       barrierDismissible: true,
       barrierLabel: 'Close library options',
-      barrierColor: Colors.black54,
+      barrierColor: const Color(0x8A191919),
       transitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
         alignment: Alignment.centerRight,
-        child: Material(color: const Color(0xFF352729),
+        child: Material(color: Bauhaus.paper,
           child: SizedBox(width: MediaQuery.sizeOf(dialogContext).width * 0.84,
             height: double.infinity,
             child: SafeArea(left: false, child: ListView(
@@ -2021,9 +1997,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         }),
         label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
           style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
-            color: Color(0xFF221A1B))),
+            color: Bauhaus.ink)),
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
-          color: Color(0xFF221A1B))), actions: [
+          color: Bauhaus.ink)), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
         IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add_circle_rounded, size: 27), onPressed: importInPlace),
         IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_horiz_rounded, size: 29),
@@ -2033,7 +2009,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         Container(height: 5, decoration: const BoxDecoration(
           gradient: LinearGradient(begin: Alignment.topCenter,
             end: Alignment.bottomCenter, colors: [
-              Color(0x66F08078), Color(0x00221A1B)]))),
+              Bauhaus.surface, Bauhaus.paper]))),
         Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8), child: SizedBox(height: 38, child: TextField(
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
@@ -2087,7 +2063,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             visualDensity: VisualDensity.compact, icon: const Icon(Icons.more_horiz, size: 18),
             onPressed: () => playlistMenu(activePlaylist!)),
           const Spacer(),
-          Text('${matches.length} songs', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text('${matches.length} songs', style: const TextStyle(color: Bauhaus.secondaryText, fontSize: 12)),
           PopupMenuButton<String>(
             tooltip: 'Sort tracks',
             icon: const Icon(Icons.sort, size: 20),
@@ -2137,7 +2113,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   child: Text('iOS deletes an app\'s private music when you uninstall it.\n'
                     'Back up to Files before changing your signing or installation.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white70, fontSize: 12))),
+                    style: TextStyle(color: Bauhaus.secondaryText, fontSize: 12))),
               ]))
           : ListView.builder(primary: false,
               physics: const ClampingScrollPhysics(),
@@ -2148,32 +2124,33 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               final groupStart = sortMode == 'fileType' && extension != previousExtension;
               return Column(mainAxisSize: MainAxisSize.min, children: [
                 if (groupStart) Container(width: double.infinity, padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                  color: const Color(0xFFF08078), child: Text('$extension files',
-                    style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Colors.black))),
+                  color: Bauhaus.red, child: Text('$extension files',
+                    style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Bauhaus.paper))),
                 ListTile(
                 shape: const Border(bottom: BorderSide(
-                  color: Color(0x2EFFFFFF), width: 0.6)),
+                  color: Bauhaus.divider, width: 0.6)),
                 leading: index == currentIndex
                   ? ValueListenableBuilder<List<double>>(valueListenable: waveformLevels,
                       builder: (_, levels, __) => SizedBox(width: 24, height: 28,
                         child: CustomPaint(painter: MiniMusicBarsPainter(
                           levels: levels, active: isPlaying))))
-                  : const Icon(Icons.music_note_rounded, color: Colors.white70),
+                  : const Icon(Icons.music_note_rounded, color: Bauhaus.secondaryText),
                 title: Align(alignment: Alignment.centerLeft,
                   child: Container(padding: const EdgeInsets.fromLTRB(5, 3, 5, 2),
                     decoration: BoxDecoration(
-                      color: index == currentIndex ? const Color(0x665A3A18) : Colors.transparent,
+                      color: Colors.transparent,
                       borderRadius: BorderRadius.circular(8)),
                     child: Text(displayName(files[index]), maxLines: 2,
                       overflow: TextOverflow.fade,
-                      style: const TextStyle(fontWeight: FontWeight.w700,
+                      style: TextStyle(fontWeight: FontWeight.w800,
+                        color: index == currentIndex ? Bauhaus.red : Bauhaus.ink,
                         letterSpacing: -0.5)))),
                 subtitle: Text(
                   index == currentIndex ? 'Now playing'
                       : trackDurations.containsKey(files[index])
                         ? clock(trackDurations[files[index]]!)
                         : 'Local audio',
-                  style: const TextStyle(color: Colors.white70)),
+                  style: const TextStyle(color: Bauhaus.secondaryText)),
                 trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert_rounded),
                   onPressed: () => trackMenu(files[index])),
                 onLongPress: () {
@@ -2196,7 +2173,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 240),
             margin: EdgeInsets.zero,
-            decoration: const BoxDecoration(color: Color(0xFF5D3031),
+            decoration: const BoxDecoration(color: Bauhaus.red,
               borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
             child: Padding(padding: EdgeInsets.fromLTRB(12, 0, 12,
               MediaQuery.paddingOf(context).bottom * 0.6), child: ListTile(
@@ -2204,13 +2181,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               valueListenable: waveformLevels,
               builder: (_, levels, __) => SizedBox(width: 26, height: 28,
                 child: CustomPaint(painter: MiniMusicBarsPainter(
-                  levels: levels, active: isPlaying)))),
-            title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  levels: levels, active: isPlaying, barColor: Bauhaus.paper)))),
+            title: ScrollingTrackTitle(text: title, style: const TextStyle(
+              fontWeight: FontWeight.w900, color: Bauhaus.paper)),
             onTap: showPlayer,
             trailing: IconButton(
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 180),
                 child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  key: ValueKey(isPlaying))),
+                  color: Bauhaus.paper, key: ValueKey(isPlaying))),
               onPressed: togglePlayback,
             ),
           )),
@@ -2218,7 +2196,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ),
         if (isLibraryExporting || isLibraryRestoring)
           const LinearProgressIndicator(minHeight: 2),
-        if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
+        if (error != null) Text(error!, style: const TextStyle(color: Bauhaus.red)),
       ])),
     );
   }
@@ -2227,10 +2205,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     final effectivePosition = draggingSeek && scrubPosition != null ? scrubPosition! : positionSeconds;
     final maximum = math.max(durationSeconds, 0.001);
     return Scaffold(
-      backgroundColor: const Color(0xFF221A1B),
+      backgroundColor: Bauhaus.paper,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF221A1B),
-        foregroundColor: const Color(0xFFFFB8A5),
+        backgroundColor: Bauhaus.paper,
+        foregroundColor: Bauhaus.ink,
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
         title: const Text('Now Playing', maxLines: 1, softWrap: false,
@@ -2263,7 +2241,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
-                color: Color(0xFFF08078), child: Icon(Icons.music_note_rounded, size: 100)));
+                color: Bauhaus.red, child: Icon(Icons.music_note_rounded, size: 100)));
             }
             final path = files[currentIndex];
             return SizedBox.square(dimension: side, child: ArtworkFlipCard(
@@ -2273,7 +2251,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }))),
           const SizedBox(height: 22),
           Row(children: [
-            Expanded(child: SizedBox(height: 38, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFFFFB8A5))))),
+            Expanded(child: SizedBox(height: 38, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Bauhaus.ink)))),
             if (currentIndex >= 0 && currentIndex < files.length)
               IconButton(tooltip: 'Technical metadata', icon: const Icon(Icons.info_outline_rounded),
                 onPressed: () => showTrackDetails(files[currentIndex])),
@@ -2281,7 +2259,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               IconButton(tooltip: 'Favorite',
                 onPressed: () => toggleFavorite(files[currentIndex]),
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                  color: const Color(0xFFFFB8A5))),
+                  color: Bauhaus.red)),
           ]),
           AnimatedSwitcher(duration: const Duration(milliseconds: 360),
             transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
@@ -2291,7 +2269,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
                   if (sourceLossless) 'Lossless source'].join('  •  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 10, color: Color(0xFFFFB8A5))))),
+                style: const TextStyle(fontSize: 10, color: Bauhaus.ink)))),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
             onChangeStart: durationSeconds <= 0 ? null :
               (value) => setState(() { draggingSeek = true; scrubPosition = value; }),
@@ -2302,12 +2280,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               if (mounted) setState(() { draggingSeek = false; scrubPosition = null; });
             })),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(clock(effectivePosition), style: const TextStyle(color: Colors.white70)),
-            Text(clock(durationSeconds), style: const TextStyle(color: Colors.white70)),
+            Text(clock(effectivePosition), style: const TextStyle(color: Bauhaus.secondaryText)),
+            Text(clock(durationSeconds), style: const TextStyle(color: Bauhaus.secondaryText)),
           ])),
           const SizedBox(height: 10),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            IconButton(tooltip: 'Shuffle', color: shuffle ? const Color(0xFFFFB8A5) : Colors.white,
+            IconButton(tooltip: 'Shuffle', color: shuffle ? Bauhaus.red : Bauhaus.ink,
               onPressed: () async {
                 setState(() => shuffle = !shuffle);
                 await syncQueue(); await saveLibrary();
@@ -2319,7 +2297,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               onLongPressCancel: stopTransportHold,
               child: const SizedBox(width: 52, height: 56,
                 child: Center(child: Icon(Icons.skip_previous_rounded, size: 36)))),
-            IconButton.filled(onPressed: files.isEmpty ? import : togglePlayback,
+            IconButton.filled(style: IconButton.styleFrom(
+              backgroundColor: Bauhaus.red, foregroundColor: Bauhaus.paper),
+              onPressed: files.isEmpty ? import : togglePlayback,
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 160),
                 transitionBuilder: (child, animation) =>
                   ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
@@ -2335,13 +2315,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 child: const SizedBox(width: 52, height: 56,
                   child: Center(child: Icon(Icons.skip_next_rounded, size: 36))))),
             Column(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : const Color(0xFFFFB8A5),
+              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Bauhaus.ink : Bauhaus.red,
                 onPressed: () async {
                   setState(() => repeat = (repeat + 1) % 3);
                   await syncQueue(); await saveLibrary();
                 }, icon: Icon(repeat == 2 ? Icons.repeat_one_rounded : Icons.repeat_rounded)),
               Text(['OFF', 'ALL', 'ONE'][repeat],
-                style: const TextStyle(fontSize: 10, color: Colors.white)),
+                style: const TextStyle(fontSize: 10, color: Bauhaus.ink)),
             ]),
           ]),
           const SizedBox(height: 12),
@@ -2358,7 +2338,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           const SizedBox(height: 4),
           TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune_rounded),
             label: const Text('Pitch and tempo')),
-          if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
+          if (error != null) Text(error!, style: const TextStyle(color: Bauhaus.red)),
           const SizedBox(height: 22),
         ],
       ),
@@ -2366,11 +2346,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       // leaving gestures on the title, controls and progress slider untouched.
       Positioned(left: 1, top: viewport.maxHeight * 0.45,
         child: Container(height: 30, width: 2,
-          decoration: BoxDecoration(color: const Color(0x32FFB8A5),
+          decoration: BoxDecoration(color: Bauhaus.mutedBlue,
             borderRadius: BorderRadius.circular(2)))),
       Positioned(right: 1, top: viewport.maxHeight * 0.45,
         child: Container(height: 30, width: 2,
-          decoration: BoxDecoration(color: const Color(0x32FFB8A5),
+          decoration: BoxDecoration(color: Bauhaus.mutedBlue,
             borderRadius: BorderRadius.circular(2)))),
       Positioned(left: 0, top: viewport.maxHeight * 0.24,
         height: viewport.maxHeight * 0.49, width: 52, child: GestureDetector(
@@ -2415,11 +2395,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 class MiniMusicBarsPainter extends CustomPainter {
   final List<double> levels;
   final bool active;
-  const MiniMusicBarsPainter({required this.levels, required this.active});
+  final Color barColor;
+  const MiniMusicBarsPainter({required this.levels, required this.active,
+    this.barColor = Bauhaus.red});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = const Color(0xFFF08078)
+    final paint = Paint()..color = barColor
       ..strokeWidth = 3.5..strokeCap = StrokeCap.round;
     for (var i = 0; i < 4; i++) {
       final start = i * 11;
@@ -2466,7 +2448,7 @@ class LiveWaveformPainter extends CustomPainter {
     }
     curve.lineTo(points.last.dx, points.last.dy);
     final paint = Paint()
-      ..color = isPlaying ? const Color(0xFFFFB8A5) : const Color(0xFFF08078)
+      ..color = isPlaying ? Bauhaus.paper : Bauhaus.red
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6
       ..strokeCap = StrokeCap.round
@@ -2487,19 +2469,19 @@ class EditableEqCurvePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final grid = Paint()..color = const Color(0x55FFFFFF)..strokeWidth = 1;
+    final grid = Paint()..color = Bauhaus.divider..strokeWidth = 1;
     for (final db in [-12.0, -6.0, 0.0, 6.0, 12.0]) {
       final y = (12 - db) / 24 * size.height;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
       final text = TextPainter(text: TextSpan(text: '${db.toInt() > 0 ? '+' : ''}${db.toInt()} dB',
-        style: const TextStyle(fontSize: 10, color: Color(0x88FFFFFF))),
+        style: const TextStyle(fontSize: 10, color: Bauhaus.secondaryText)),
         textDirection: TextDirection.ltr)..layout();
       text.paint(canvas, Offset(3, math.max(0, y - 13)));
     }
     for (var i = 0; i < gains.length; i++) {
       final x = size.width * (i + 0.5) / gains.length;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height),
-        Paint()..color = const Color(0x20FFFFFF)..strokeWidth = 1);
+        Paint()..color = Bauhaus.divider..strokeWidth = 1);
     }
     final path = Path();
     for (var i = 0; i < gains.length; i++) {
@@ -2508,7 +2490,7 @@ class EditableEqCurvePainter extends CustomPainter {
       if (i == 0) { path.moveTo(pos.dx, pos.dy); }
       else { path.lineTo(pos.dx, pos.dy); }
       canvas.drawCircle(pos, 9, Paint()..color = accent);
-      canvas.drawCircle(pos, 4, Paint()..color = const Color(0xFF352729));
+      canvas.drawCircle(pos, 4, Paint()..color = Bauhaus.paper);
     }
     canvas.drawPath(path, Paint()..color = accent..strokeWidth = 3
       ..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round
@@ -2529,7 +2511,7 @@ class EqGridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final guide = Paint()
-      ..color = Colors.white.withValues(alpha: 0.09)
+      ..color = Bauhaus.ink.withValues(alpha: 0.09)
       ..strokeWidth = 1;
     for (var i = 1; i < 4; i++) {
       final y = size.height * i / 4;
@@ -2604,7 +2586,7 @@ class EqBandControl extends StatelessWidget {
           Positioned(
             left: 0, right: 0, bottom: 0,
             child: Center(child: Text(label,
-              style: const TextStyle(fontSize: 10, color: Colors.white70))),
+              style: const TextStyle(fontSize: 10, color: Bauhaus.secondaryText))),
           ),
         ]),
       );
@@ -2628,7 +2610,7 @@ class EqBandTrackPainter extends CustomPainter {
     final thumbY = top + (12.0 - gain) / 24.0 * travel;
     final zeroY = top + travel / 2;
     final base = Paint()
-      ..color = Colors.white24
+      ..color = Bauhaus.divider
       ..strokeWidth = 3.0
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(middleX, top),
@@ -2639,7 +2621,7 @@ class EqBandTrackPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(middleX, zeroY),
       Offset(middleX, thumbY), selected);
-    final ring = Paint()..color = const Color(0xFF352729);
+    final ring = Paint()..color = Bauhaus.paper;
     canvas.drawCircle(Offset(middleX, thumbY), 8, ring);
     canvas.drawCircle(Offset(middleX, thumbY), 6,
       Paint()..color = accent);
