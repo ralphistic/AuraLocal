@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/scheduler.dart';
@@ -383,6 +384,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // A manually edited queue must not be destroyed by a sort, a search,
     // an active playlist, or by simply toggling shuffle on and off.
     manualQueue.removeWhere((path) => !files.contains(path));
+    if (manualQueueActive && manualQueue.isEmpty) manualQueueActive = false;
     if (manualQueueActive) {
       queuedPaths = List<String>.of(manualQueue);
     } else {
@@ -1230,7 +1232,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             trailing: PopupMenuButton<String>(
               tooltip: 'Queue actions',
               onSelected: (action) async {
-                if (action == 'clear') await editQueue([]);
+                if (action == 'clear') await resetQueueToLibraryOrder();
                 if (action == 'reset') await resetQueueToLibraryOrder();
                 if (action == 'add' && currentIndex >= 0 && currentIndex < files.length) {
                   await editQueue([...queuedPaths, files[currentIndex]]);
@@ -1580,7 +1582,17 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     const Spacer(),
                     Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
                   ]),
-                  Slider(value: preampDb, min: -12, max: 12, divisions: 48,
+                  dragOnlydragOnlySlider(value: preampDb, min: -12, max: 12, divisions: 48,
+              onReset: () {
+                refresh(() => preampDb = 0);
+                setState(() {});
+                applyNativeEQ();
+              },
+                    onReset: () {
+                      refresh(() => preampDb = 0);
+                      setState(() {});
+                      applyNativeEQ();
+                    },
                     onChanged: (value) {
                       refresh(() => preampDb = value);
                       setState(() {});
@@ -1628,6 +1640,24 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     );
   }
 
+  Widget dragOnlySlider({required double value, required double min,
+    required double max, int? divisions, required ValueChanged<double> onChanged,
+    required VoidCallback onReset, ValueChanged<double>? onChangeEnd}) {
+    return LayoutBuilder(builder: (context, bounds) => GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: onReset,
+      onHorizontalDragUpdate: (details) {
+        if (bounds.maxWidth <= 0) return;
+        final next = (value + details.delta.dx / bounds.maxWidth * (max - min))
+            .clamp(min, max).toDouble();
+        onChanged(next);
+      },
+      onHorizontalDragEnd: (_) => onChangeEnd?.call(value),
+      child: IgnorePointer(child: Slider(value: value, min: min, max: max,
+        divisions: divisions, onChanged: (_) {})),
+    ));
+  }
+
   void showAudioSettings() {
     showModalBottomSheet<void>(context: context, isScrollControlled: true,
       builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) => SafeArea(
@@ -1642,7 +1672,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               const Text('Preamp'), const Spacer(),
               Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
             ]),
-            Slider(value: preampDb, min: -12, max: 12, divisions: 48,
+            dragOnlySlider(value: preampDb, min: -12, max: 12, divisions: 48,
+              onReset: () {
+                refresh(() => preampDb = 0);
+                setState(() {});
+                applyNativeEQ();
+              },
               onChanged: (value) {
                 refresh(() => preampDb = value);
                 setState(() {});
@@ -1652,7 +1687,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             if (linkedPitchTempo) ...[
               TextButton(onPressed: () => showTempoWheel(refresh),
                 child: Text('Tempo ${(playbackSpeed * 100).round()}%  -  Pitch ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones st / ${pitchCents.toStringAsFixed(0)} cents')),
-              Slider(value: playbackSpeed.clamp(0.5, 2.0), min: 0.5, max: 2.0, divisions: 150,
+              dragOnlySlider(value: playbackSpeed.clamp(0.5, 2.0), min: 0.5,
+                max: 2.0, divisions: 150,
+                onReset: () {
+                  refresh(() { playbackSpeed = 1; pitchSemitones = 0; pitchCents = 0; });
+                  setState(() {});
+                  updateNativePitchTempo();
+                },
                 onChanged: (value) {
                   refresh(() {
                     playbackSpeed = value;
@@ -1666,57 +1707,25 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 onChangeEnd: (_) => updateNativePitchTempo()),
             ] else ...[
             Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones  |  ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
-            // Drag the combined pitch slider, double-tap to reset, or use
-            // the dedicated precision picker for semitones and cents.
             Semantics(
               label: 'Pitch slider. Drag to change pitch; double tap to reset. Use Fine tune for semitones and cents.',
-              child: GestureDetector(
-                onDoubleTapDown: (_) { refresh(() { pitchSemitones = 0; pitchCents = 0; }); updateNativePitchTempo(); },
-                child: Listener(
-                onPointerDown: (event) {
-                  pitchTouchStart = event.position;
-                  pitchTouchMoved = false;
+              child: dragOnlySlider(
+                value: ((pitchSemitones * 100 + pitchCents) / 100)
+                    .clamp(-12.0, 12.0).toDouble(), min: -12, max: 12,
+                onReset: () {
+                  refresh(() { pitchSemitones = 0; pitchCents = 0; });
+                  setState(() {});
+                  updateNativePitchTempo();
                 },
-                onPointerMove: (event) {
-                  if (pitchTouchStart != null &&
-                      (event.position - pitchTouchStart!).distance > 9) {
-                    pitchTouchMoved = true;
-                  }
-                },
-                onPointerUp: (event) {
-                  final now = DateTime.now().millisecondsSinceEpoch;
-                  final width = MediaQuery.sizeOf(context).width - 36;
-                  final pitch = ((pitchSemitones * 100 + pitchCents) / 100).clamp(-12.0, 12.0);
-                  final thumbX = 24 + (pitch + 12) / 24 * (width - 48);
-                  if (!pitchTouchMoved && (event.localPosition.dx - thumbX).abs() < 32) {
-                    if (now - lastPitchTapAt < 340) {
-                      refresh(() { pitchSemitones = 0; pitchCents = 0; });
-                      updateNativePitchTempo();
-                      lastPitchTapAt = 0;
-                    } else { lastPitchTapAt = now; }
-                  }
-                  pitchTouchStart = null;
-                },
-                onPointerCancel: (_) => pitchTouchStart = null,
-                child: Slider(
-                  value: ((pitchSemitones * 100 + pitchCents) / 100)
-                      .clamp(-12.0, 12.0).toDouble(),
-                  min: -12,
-                  max: 12,
-                  onChanged: (value) {
-                    final cents = (value * 100).round().clamp(-1200, 1200);
-                    refresh(() {
-                      pitchSemitones = (cents / 100).truncate();
-                      pitchCents = (cents - pitchSemitones * 100).toDouble();
-                    });
-                    setState(() {});
-                    scheduleNativePitchTempoUpdate();
-                  },
-                  onChangeEnd: (_) => updateNativePitchTempo(),
-                ),
-              ),
-              ),
-            ),
+                onChanged: (value) {
+                  final cents = (value * 100).round().clamp(-1200, 1200);
+                  refresh(() {
+                    pitchSemitones = (cents / 100).truncate();
+                    pitchCents = (cents - pitchSemitones * 100).toDouble();
+                  });
+                  setState(() {});
+                  scheduleNativePitchTempoUpdate();
+                }, onChangeEnd: (_) => updateNativePitchTempo())),
             TextButton.icon(
               onPressed: () => showPitchWheel(refresh),
               icon: const Icon(Icons.tune_rounded, size: 18),
@@ -1724,28 +1733,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ),
             TextButton(onPressed: () => showTempoWheel(refresh),
               child: Text('Tempo: ${(playbackSpeed * 100).round()}%')),
-            Listener(
-              onPointerDown: (event) { tempoTouchStart = event.position; tempoTouchMoved = false; },
-              onPointerMove: (event) {
-                if (tempoTouchStart != null && (event.position - tempoTouchStart!).distance > 9) {
-                  tempoTouchMoved = true;
-                }
+            dragOnlySlider(value: playbackSpeed, min: 0.5, max: 2.0,
+              divisions: 150,
+              onReset: () {
+                refresh(() => playbackSpeed = 1);
+                setState(() {});
+                updateNativePitchTempo();
               },
-              onPointerUp: (event) {
-                final now = DateTime.now().millisecondsSinceEpoch;
-                final width = MediaQuery.sizeOf(context).width - 36;
-                final thumbX = 24 + (playbackSpeed - 0.5) / 1.5 * (width - 48);
-                if (!tempoTouchMoved && (event.localPosition.dx - thumbX).abs() < 32) {
-                  if (now - lastTempoTapAt < 340) {
-                    refresh(() => playbackSpeed = 1);
-                    updateNativePitchTempo();
-                    lastTempoTapAt = 0;
-                  } else { lastTempoTapAt = now; }
-                }
-              },
-              child: Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
-                onChanged: (value) { refresh(() => playbackSpeed = value); setState(() {}); scheduleNativePitchTempoUpdate(); },
-                onChangeEnd: (_) => updateNativePitchTempo())),
+              onChanged: (value) {
+                refresh(() => playbackSpeed = value);
+                setState(() {});
+                scheduleNativePitchTempoUpdate();
+              }, onChangeEnd: (_) => updateNativePitchTempo()),
             ],
             SwitchListTile.adaptive(title: const Text('Link pitch to tempo'),
               subtitle: const Text('Tape-speed behavior: speed and pitch move together'),
@@ -2131,10 +2130,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 ListTile(title: Text('AuraLocal Build $auraBuildNumber')),
               ])))),
       ),
-      transitionBuilder: (_, animation, __, child) => SlideTransition(
-        position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
-          .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-        child: child));
+      transitionBuilder: (_, animation, __, child) => Stack(children: [
+        Positioned.fill(child: IgnorePointer(child: AnimatedBuilder(
+          animation: animation,
+          builder: (_, __) => BackdropFilter(
+            filter: ui.ImageFilter.blur(
+              sigmaX: 4.0 * animation.value, sigmaY: 4.0 * animation.value),
+            child: const SizedBox.expand())))),
+        SlideTransition(
+          position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+          child: child),
+      ]));
   }
 
   Widget buildLibrary() {
@@ -2145,13 +2152,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           libraryPlaylistsPage = !libraryPlaylistsPage;
           if (!libraryPlaylistsPage) { activePlaylist = null; favoritesOnly = false; }
         }),
-        label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
-          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
-            color: Color(0xFF221A1B))),
+        label: AnimatedSwitcher(duration: const Duration(milliseconds: 240),
+          child: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
+            key: ValueKey(libraryPlaylistsPage),
+            style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
+              color: Color(0xFF221A1B)))),
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
           color: Color(0xFF221A1B))), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
-        IconButton(tooltip: 'Link music from Files without copying', icon: const Icon(Icons.add_circle_rounded, size: 27), onPressed: importInPlace),
+        IconButton(tooltip: 'Import music as a copy', icon: const Icon(Icons.add_rounded, size: 32), onPressed: import),
         IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_horiz_rounded, size: 29),
           onPressed: showLibraryOptionsPane),
       ]),
@@ -2172,7 +2181,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
         ))),
-        if (libraryPlaylistsPage) Expanded(child: ListView(children: [
+        if (libraryPlaylistsPage) Expanded(child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 260),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation, child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0.08, 0), end: Offset.zero)
+                  .animate(animation), child: child)),
+          child: ListView(key: const ValueKey('playlist-directory'), children: [
           ListTile(leading: const Icon(Icons.add_circle_rounded),
             title: const Text('Create a playlist'), onTap: createPlaylist),
           for (final name in playlists.keys)
@@ -2184,7 +2201,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 libraryPlaylistsPage = false; activePlaylist = name;
                 favoritesOnly = false; query = ''; searchController.clear();
               })),
-        ])) else ...[
+        ]))) else ...[
         // Compact library navigation: one menu instead of stacked chip rows.
         Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Row(children: [
           PopupMenuButton<String>(
@@ -2266,7 +2283,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
               ]))
           : ListView.builder(primary: false,
-              key: ValueKey('full-library-${files.length}-${libraryHome ? 1 : 0}'),
+              key: ValueKey('full-library-${files.length}-${libraryHome ? 1 : 0}-${query.isEmpty && activePlaylist == null && !favoritesOnly ? 'all' : 'filtered'}'),
               physics: const ClampingScrollPhysics(),
               itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];
@@ -2295,11 +2312,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       overflow: TextOverflow.fade,
                       style: const TextStyle(fontWeight: FontWeight.w700,
                         letterSpacing: -0.5)))),
-                subtitle: Text(
-                  index == currentIndex ? 'Now playing'
-                      : trackDurations.containsKey(files[index])
-                        ? clock(trackDurations[files[index]]!)
-                        : 'Local audio',
+                subtitle: Text([
+                  if ((metadataFor(files[index])['artist'] ?? '').trim().isNotEmpty)
+                    metadataFor(files[index])['artist']!.trim(),
+                  if (index == currentIndex) 'Now playing'
+                  else if (trackDurations.containsKey(files[index]))
+                    clock(trackDurations[files[index]]!)
+                  else 'Local audio',
+                ].join('  -  '), maxLines: 2, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: Colors.white70)),
                 trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert_rounded),
                   onPressed: () => trackMenu(files[index])),
@@ -2309,7 +2329,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 },
                 onTap: () async {
                   await selectAndPlayTrack(index);
-                  if (mounted) showPlayer();
+                  if (mounted) {
+                    // A transient, partially saved filter must never make the
+                    // song library appear wiped when this player closes.
+                    query = ''; favoritesOnly = false; activePlaylist = null;
+                    libraryPlaylistsPage = false;
+                    searchController.clear();
+                    showPlayer();
+                  }
                 },
               ),
               ]);
@@ -2426,12 +2453,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   if (sourceLossless) 'Lossless source'].join('  •  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 10, color: Color(0xFFFFB8A5))))),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: Slider(value: effectivePosition.clamp(0.0, maximum).toDouble(), max: maximum,
-            onChangeStart: durationSeconds <= 0 ? null :
-              (value) => setState(() { draggingSeek = true; scrubPosition = value; }),
-            onChanged: durationSeconds <= 0 ? null :
-              (value) => setState(() => scrubPosition = value),
-            onChangeEnd: durationSeconds <= 0 ? null : (value) async {
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: dragOnlySlider(value: effectivePosition.clamp(0.0, maximum).toDouble(),
+            min: 0, max: maximum, onReset: () => seekTo(0),
+            onChanged: (value) => setState(() {
+              draggingSeek = true; scrubPosition = value;
+            }),
+            onChangeEnd: (value) async {
               await seekTo(value);
               if (mounted) setState(() { draggingSeek = false; scrubPosition = null; });
             })),
@@ -2498,18 +2525,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       ),
       // The transport double-tap targets live in clear margins below artwork,
       // leaving gestures on the title, controls and progress slider untouched.
-      for (final left in [true, false])
-        Positioned(top: viewport.maxHeight * 0.43,
-          left: left ? 0 : null, right: left ? null : 0,
-          child: IgnorePointer(child: Container(width: 26, height: 66,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: left ? Alignment.centerLeft : Alignment.centerRight,
-                end: left ? Alignment.centerRight : Alignment.centerLeft,
-                colors: const [Color(0x225D3031), Color(0x00221A1B)])),
-            child: Center(child: Opacity(opacity: 0.22,
-              child: Icon(Icons.fingerprint_rounded, size: 12,
-                color: const Color(0xFFFFB8A5))))))),
       Positioned(left: 0, top: viewport.maxHeight * 0.24,
         height: viewport.maxHeight * 0.49, width: 52, child: GestureDetector(
           behavior: HitTestBehavior.opaque,

@@ -73,9 +73,9 @@ require("DropdownButtonFormField<String>" in dart and "onDoubleTapDown" in dart,
 require("isSameAudio" in dart and "originalNames" in dart and
         "if (duplicate) continue;" in dart,
         "Repeated audio imports preserve original track labels")
-require("onPointerUp:" in dart and "pitchTouchMoved" in dart and
-        "onChangeEnd: (_) => updateNativePitchTempo()" in dart,
-        "Pitch slider supports dragging and precision picker tapping")
+require("Widget dragOnlySlider(" in dart and "onHorizontalDragUpdate" in dart and
+        "onDoubleTap: onReset" in dart and "showPitchWheel(refresh)" in dart,
+        "Pitch slider supports drag-only adjustments, double-tap reset and precision wheel")
 require("startMiniSwipe()" in dart and "finishMiniSwipe" in dart and
         "return Stack(children: [" in dart and "AnimatedContainer(" in dart and "if (!libraryHome)" in dart,
         "Swipe-up opens a bounded player; minimize cannot strand a grey overlay")
