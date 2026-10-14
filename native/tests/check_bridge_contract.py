@@ -140,3 +140,15 @@ require("_settingsSection('Music import'" in dart and
 require("onVerticalDragEnd: finishPlayerDrag" in dart and
         "Color.lerp(GoogleLetterPalette.blue" in dart,
         "Album art supports down-swipe and expanding player morphs mustard to cream")
+
+require("onPressed: showQuickAddMenu" in dart and
+        "void showQuickAddMenu()" in dart and
+        all(label in dart for label in ["Link a song from Files", "Import a song as a copy", "Create a playlist"]),
+        "Chunky plus opens a dedicated music import and playlist action sheet")
+require("showBlurredActionSheet((sheet)" in dart and
+        "ui.ImageFilter.blur(sigmaX: 6 * animation.value" in dart,
+        "Track action and quick-add floating sheets have animated backdrop blur")
+require("name: linkedPitchTempo ? 'Tapespeed' : 'Tempo'" in dart and
+        "Column(mainAxisSize: MainAxisSize.min" in dart and
+        "Text('Fine tuning'" in dart and "Text('Reset pitch & tempo'" in dart,
+        "Linked tempo layout self-sizes; fine tuning and reset are distinct actions")

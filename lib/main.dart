@@ -1236,10 +1236,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void trackMenu(String path) {
-    showModalBottomSheet<void>(context: context,
-      isScrollControlled: true, showDragHandle: true,
-      backgroundColor: GoogleLetterPalette.cream,
-      builder: (sheet) => SafeArea(child: Padding(
+    showBlurredActionSheet((sheet) => Padding(
         padding: const EdgeInsets.fromLTRB(15, 15, 15, 22),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           _settingsSection('Track actions', [
@@ -1280,7 +1277,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     ]))));
               }),
           ]),
-        ]))));
+        ])));
   }
 
   Future<void> moveQueuedTrack(int from, int to) async {
@@ -1852,10 +1849,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       backgroundColor: GoogleLetterPalette.cream,
       showDragHandle: true,
       builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) =>
-        SafeArea(child: SizedBox(height: MediaQuery.sizeOf(sheet).height * 0.77,
-          child: Padding(padding: const EdgeInsets.fromLTRB(24, 8, 24, 22),
-          child: Column(children: [
-            const SizedBox(height: 24),
+        SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const SizedBox(height: 16),
             _audioControlRow(icon: Icons.speed_rounded,
               accent: GoogleLetterPalette.yellow,
               name: linkedPitchTempo ? 'Tapespeed' : 'Tempo',
@@ -1939,20 +1935,37 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   setState(() {});
                   scheduleEQUpdate();
                 }, onChangeEnd: (_) => applyNativeEQ())),
-            const Spacer(),
-            IconButton(tooltip: 'Open precision tuning wheels',
-              iconSize: 88,
-              style: IconButton.styleFrom(backgroundColor: GoogleLetterPalette.creamDivider,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
-              icon: const Padding(padding: EdgeInsets.all(20), child: _TuningForkIcon()),
-              onPressed: () => showThreePrecisionWheels(refresh)),
-            const SizedBox(height: 12),
-            TextButton(onPressed: () async {
-              refresh(() { pitchSemitones = 0; pitchCents = 0; playbackSpeed = 1; });
-              setState(() {});
-              await updateNativePitchTempo();
-            }, child: const Text('Reset pitch and tempo')),
-          ]))))));
+            const SizedBox(height: 16),
+            const Divider(color: GoogleLetterPalette.creamDivider, thickness: 1),
+            const SizedBox(height: 16),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              Column(children: [
+                IconButton(tooltip: 'Open precision tuning wheels',
+                  iconSize: 72,
+                  style: IconButton.styleFrom(backgroundColor: GoogleLetterPalette.creamDivider,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
+                  icon: const Padding(padding: EdgeInsets.all(14), child: _TuningForkIcon()),
+                  onPressed: () => showThreePrecisionWheels(refresh)),
+                const SizedBox(height: 5),
+                const Text('Fine tuning', style: TextStyle(
+                  fontWeight: FontWeight.w800, color: GoogleLetterPalette.ink)),
+              ]),
+              Expanded(child: Padding(padding: const EdgeInsets.only(left: 20),
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: GoogleLetterPalette.red,
+                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13)),
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  onPressed: () async {
+                    refresh(() { pitchSemitones = 0; pitchCents = 0; playbackSpeed = 1; });
+                    setState(() {});
+                    await updateNativePitchTempo();
+                  },
+                  label: const Text('Reset pitch & tempo', maxLines: 2,
+                    textAlign: TextAlign.center)),
+              )),
+            ]),
+          ])))));
   }
 
   Future<void> loadMissingDurations() async {
@@ -2283,6 +2296,33 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     if (mounted) setState(() {});
   }
 
+  Future<void> showBlurredActionSheet(Widget Function(BuildContext) builder) async {
+    await showGeneralDialog<void>(context: context,
+      barrierDismissible: true, barrierLabel: 'Close actions',
+      barrierColor: Colors.black38,
+      transitionDuration: const Duration(milliseconds: 310),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) =>
+        SafeArea(child: Align(alignment: Alignment.bottomCenter,
+          child: Material(color: Colors.transparent,
+            child: Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 11),
+              child: ClipRRect(borderRadius: BorderRadius.circular(29),
+                child: ColoredBox(color: GoogleLetterPalette.cream,
+                  child: builder(dialogContext))))))),
+      transitionBuilder: (context, animation, secondary, child) => Stack(children: [
+        Positioned.fill(child: IgnorePointer(child: AnimatedBuilder(
+          animation: animation,
+          builder: (_, __) => BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 6 * animation.value,
+              sigmaY: 6 * animation.value),
+            child: const SizedBox.expand())))),
+        FadeTransition(opacity: animation,
+          child: SlideTransition(position: Tween<Offset>(
+            begin: const Offset(0, 0.16), end: Offset.zero).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+            child: child)),
+      ]));
+  }
+
   Widget _settingsOption({required String label, required IconData icon,
       required Color accent, required VoidCallback onTap, String? detail}) =>
     ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
@@ -2387,10 +2427,42 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       ])),
                   ]))))))),
       transitionBuilder: (_, animation, __, child) =>
-        FadeTransition(opacity: animation, child: SlideTransition(
+        Stack(children: [
+          Positioned.fill(child: IgnorePointer(child: AnimatedBuilder(
+            animation: animation,
+            builder: (_, __) => BackdropFilter(
+              filter: ui.ImageFilter.blur(
+                sigmaX: 5 * animation.value, sigmaY: 5 * animation.value),
+              child: const SizedBox.expand())))),
+          FadeTransition(opacity: animation, child: SlideTransition(
           position: Tween<Offset>(begin: const Offset(0.20, 0), end: Offset.zero)
             .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-          child: child)));
+          child: child)),
+        ]);
+  }
+
+  void showQuickAddMenu() {
+    showBlurredActionSheet((sheet) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Align(alignment: Alignment.centerLeft,
+            child: Padding(padding: EdgeInsets.fromLTRB(8, 8, 8, 15),
+              child: Text('Add to your library', style: TextStyle(
+                fontSize: 23, fontWeight: FontWeight.w900)))),
+          _settingsSection('Choose an action', [
+            _settingsOption(label: 'Link a song from Files',
+              detail: 'No audio copy; keeps the original file',
+              icon: Icons.link_rounded, accent: GoogleLetterPalette.yellow,
+              onTap: () { Navigator.pop(sheet); importInPlace(); }),
+            _settingsOption(label: 'Import a song as a copy',
+              detail: 'Keep a copy inside AuraLocal',
+              icon: Icons.file_copy_rounded, accent: GoogleLetterPalette.green,
+              onTap: () { Navigator.pop(sheet); import(); }),
+            _settingsOption(label: 'Create a playlist',
+              icon: Icons.playlist_add_rounded, accent: GoogleLetterPalette.red,
+              onTap: () { Navigator.pop(sheet); createPlaylist(); }),
+          ]),
+        ])));
   }
 
   Widget buildLibrary() {
@@ -2409,7 +2481,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
           color: Color(0xFF221A1B))), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
-        IconButton(tooltip: 'Import music as a copy', icon: const ChunkyPlusIcon(), onPressed: import),
+        IconButton(tooltip: 'Add music or playlist', icon: const ChunkyPlusIcon(), onPressed: showQuickAddMenu),
         IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_vert_rounded, size: 29),
           onPressed: showLibraryOptionsPane),
       ]),
@@ -2609,7 +2681,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ]);
             })),
         ])))),
-        if (currentIndex >= 0 && currentIndex < files.length) ColoredBox(
+        if (libraryHome && currentIndex >= 0 && currentIndex < files.length) ColoredBox(
           color: GoogleLetterPalette.cream, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragStart: (_) => startMiniSwipe(),
@@ -2681,7 +2753,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ], icon: const Icon(Icons.more_vert_rounded)),
         ],
       ),
-      body: Opacity(opacity: stage, child: SafeArea(
+      body: IgnorePointer(ignoring: stage < 0.92,
+        child: Opacity(opacity: stage, child: SafeArea(
         child: LayoutBuilder(builder: (context, viewport) =>
         Stack(children: [ListView(
           key: const PageStorageKey<String>('now-playing-content'),
@@ -2808,7 +2881,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           const SizedBox(height: 22),
         ],
       ),
-      ])))),
+      ]))))),
     );
   }
 

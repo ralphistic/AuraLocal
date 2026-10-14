@@ -124,21 +124,44 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
     String artworkFeedback = '';
     try {
       await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+        backgroundColor: GoogleLetterPalette.cream,
+        showDragHandle: true,
         builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) => Padding(
-          padding: EdgeInsets.fromLTRB(18, 18, 18, MediaQuery.viewInsetsOf(sheet).bottom + 18),
+          padding: EdgeInsets.fromLTRB(18, 10, 18, MediaQuery.viewInsetsOf(sheet).bottom + 18),
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Track metadata', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const Text('Track metadata', style: TextStyle(fontSize: 25,
+              fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
             for (final section in [
               ('BASIC INFORMATION', 0, 3),
               ('TRACK INFORMATION', 3, 8),
               ('NOTES & ARTWORK', 8, keys.length),
-            ]) ExpansionTile(title: Text(section.$1,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+            ]) ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 9),
+              childrenPadding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+              title: Text(section.$1.toLowerCase().split(' ').map((word) =>
+                word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}').join(' '),
+                style: const TextStyle(fontWeight: FontWeight.w900,
+                  color: GoogleLetterPalette.ink, fontSize: 15)),
               initiallyExpanded: section.$2 == 0,
               children: [for (var i = section.$2; i < section.$3; i++) Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                child: TextField(controller: controllers[keys[i]],
-                  decoration: InputDecoration(labelText: labels[i])))]),
+                padding: const EdgeInsets.symmetric(vertical: 7),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Padding(padding: const EdgeInsets.fromLTRB(6, 0, 0, 6),
+                    child: Text(labels[i], style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w800,
+                      color: GoogleLetterPalette.creamText))),
+                  TextField(controller: controllers[keys[i]],
+                    style: const TextStyle(color: GoogleLetterPalette.ink,
+                      fontWeight: FontWeight.w700, fontSize: 16),
+                    decoration: InputDecoration(
+                      hintText: 'Enter ${labels[i].toLowerCase()}',
+                      hintStyle: TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.55)),
+                      filled: true,
+                      fillColor: const Color(0xFFFFFAEF),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
+                      border: OutlineInputBorder(borderSide: BorderSide.none,
+                        borderRadius: BorderRadius.circular(14)))),
+                ]))]),
             const SizedBox(height: 12),
             OutlinedButton.icon(icon: const Icon(Icons.image),
               label: const Text('Choose high-resolution artwork from Files'),
