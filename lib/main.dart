@@ -159,7 +159,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   double durationSeconds = 0;
   double? scrubPosition;
   bool draggingSeek = false;
-  bool waveformVisible = false;
+  bool waveformVisible = false; // Legacy persisted setting; EQ analyzer runs independently.
   final waveformLevels = ValueNotifier<List<double>>(List.filled(48, 0));
   List<double> waveformTarget = List.filled(48, 0);
   Ticker? spectrumTicker;
@@ -190,7 +190,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     });
     restoreLibrary();
     spectrumTicker = createTicker((_) {
-      if (!waveformVisible || !mounted) return;
+      if (!mounted) return;
       final previous = waveformLevels.value;
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
@@ -199,7 +199,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       });
       waveformLevels.value = next;
     });
-    // Poll native spectrum up to 60 Hz; vsync ticker renders at device refresh rate.
+    // Spectrum stays available for the Equalizer visualization; not toggled
+    // by Now Playing or tied to a hidden player waveform state.
+    spectrumTicker?.start();
+    nativeDsp.invokeMethod('setWaveformEnabled', {'enabled': true});
     pollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) => pollNative());
   }
 
@@ -245,7 +248,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         outputInfoTicks = 0;
         refreshOutputInfo();
       }
-      if (waveformVisible) {
+      {
         final values = response['waveform'];
         if (values is List) {
           waveformTarget = values.map((v) => (v as num).toDouble().clamp(0.0, 1.0).toDouble()).toList();
@@ -1353,7 +1356,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   void updateCurve(Offset point, Size size, StateSetter refresh) {
     if (size.width <= 0 || size.height <= 0) return;
-    final index = (point.dx / size.width * 10).floor().clamp(0, 9);
+    // Dots in the equalizer align to the center of each of 10 columns.
+    final index = ((point.dx / size.width) * 10 - 0.5).round().clamp(0, 9);
     final gain = (12 - point.dy / size.height * 24).clamp(-12.0, 12.0);
     setManualEQBand(index, gain.toDouble(), refresh);
   }
@@ -1382,7 +1386,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       children: [
                         Text('Audio Equalizer', style: TextStyle(
                           fontSize: 21, fontWeight: FontWeight.bold)),
-                        Text('10-band  -  native audio processing',
+                        Text('Drag the dots to tune bass, mids and treble',
                           style: TextStyle(fontSize: 12, color: Colors.white70)),
                       ],
                     )),
@@ -1967,7 +1971,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ],
         ),
       ]),
-      body: SafeArea(child: Column(children: [
+      body: SafeArea(bottom: false, child: Column(children: [
         Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8), child: SizedBox(height: 38, child: TextField(
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
@@ -2103,9 +2107,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragEnd: finishMiniSwipe,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 240),
-            margin: const EdgeInsets.fromLTRB(7, 0, 7, 0),
-            decoration: BoxDecoration(color: const Color(0xFF5D3031),
-              borderRadius: BorderRadius.circular(18)),
+            margin: EdgeInsets.zero,
+            decoration: const BoxDecoration(color: Color(0xFF5D3031),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
             child: ListTile(
             leading: const Icon(Icons.graphic_eq_rounded, color: Color(0xFFFFB8A5)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -2140,9 +2144,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
         titleSpacing: 0,
         actions: [
-          IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
-            color: waveformVisible ? const Color(0xFFFFB8A5) : Colors.white,
-            icon: const Icon(Icons.waves_rounded)),
           IconButton(tooltip: 'Equalizer', icon: const Icon(Icons.equalizer_rounded),
             color: eqEnabled ? activeEqAccent : Colors.white,
             onPressed: showEqualizer),
@@ -2163,7 +2164,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           primary: false,
           padding: const EdgeInsets.fromLTRB(22, 6, 22, 28),
           children: [
-          const SizedBox(height: 12),
+          SizedBox(height: math.max(30.0, viewport.maxHeight * 0.10)),
           SizedBox(height: math.min(viewport.maxHeight * 0.32, 260),
             child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
@@ -2189,21 +2190,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   color: const Color(0xFFFFB8A5))),
           ]),
-          AnimatedSize(duration: const Duration(milliseconds: 280), curve: Curves.easeInOutCubic,
-            alignment: Alignment.topCenter,
-            child: waveformVisible ? Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 6),
-              child: SizedBox(height: 76, width: double.infinity,
-                child: ValueListenableBuilder<List<double>>(
-                  valueListenable: waveformLevels,
-                  builder: (_, levels, __) => CustomPaint(
-                    painter: LiveWaveformPainter(levels, isPlaying: isPlaying),
-                  ),
-                ),
-              ),
-            ) : const SizedBox(width: double.infinity, height: 0),
-          ),
-          const SizedBox(height: 12),
           AnimatedSwitcher(duration: const Duration(milliseconds: 360),
             transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
             child: listeningOutput.isEmpty ? const SizedBox(height: 12, key: ValueKey('empty-route')) :
@@ -2383,7 +2369,8 @@ class EditableEqCurvePainter extends CustomPainter {
           (12 - gains[i]) / 24 * size.height);
       if (i == 0) { path.moveTo(pos.dx, pos.dy); }
       else { path.lineTo(pos.dx, pos.dy); }
-      canvas.drawCircle(pos, 5.5, Paint()..color = accent);
+      canvas.drawCircle(pos, 9, Paint()..color = accent);
+      canvas.drawCircle(pos, 4, Paint()..color = const Color(0xFF352729));
     }
     canvas.drawPath(path, Paint()..color = accent..strokeWidth = 3
       ..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round
