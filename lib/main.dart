@@ -117,6 +117,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
   static const fileReferences = MethodChannel('auralocal/file_references');
   final files = <String>[];
+  final ScrollController libraryScroll = ScrollController();
   final originalNames = <String, String>{};
   final trackMetadata = <String, Map<String, String>>{};
   final embeddedArt = <String, Uint8List?>{};
@@ -238,6 +239,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     eqDebounce?.cancel();
     spectrumTicker?.dispose();
     dspSaveDebounce?.cancel();
+    libraryScroll.dispose();
     searchController.dispose();
     waveformLevels.dispose();
     nativeDsp.setMethodCallHandler(null);
@@ -1076,6 +1078,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void showLibrary() {
+    // Keep the existing scroll controller mounted and clamp stale positions
+    // after the full-screen player returns.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && libraryScroll.hasClients) {
+        final position = libraryScroll.position;
+        if (position.pixels > position.maxScrollExtent ||
+            position.pixels < position.minScrollExtent) {
+          libraryScroll.jumpTo(position.pixels.clamp(
+            position.minScrollExtent, position.maxScrollExtent).toDouble());
+        }
+      }
+    });
     // Return to the full, stable library even after a playlist, search, or
     // metadata edit. No song files or manifest entries are ever deleted here.
     searchController.clear();
@@ -2552,7 +2566,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               const PopupMenuItem(value: 'favorites', child: Text('Favorites')),
               for (final name in playlists.keys) PopupMenuItem(value: name, child: Text(name)),
             ],
-            child: Padding(padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+            child: Padding(padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Text(activePlaylist ?? (favoritesOnly ? 'Favorites' : 'All songs'),
                   style: const TextStyle(fontWeight: FontWeight.w800,
@@ -2619,6 +2633,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
               ]))
           : ListView.builder(primary: false,
+              controller: libraryScroll,
               key: const PageStorageKey<String>('persistent-song-library'),
               cacheExtent: files.length <= 20 ? 12000 : 700,
               physics: const ClampingScrollPhysics(),
@@ -2915,7 +2930,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
     return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [
-      buildLibrary(),
+      IgnorePointer(ignoring: !libraryHome, child: buildLibrary()),
       if (!libraryHome)
         TweenAnimationBuilder<double>(
           tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset()).toDouble()),

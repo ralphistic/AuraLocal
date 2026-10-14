@@ -311,7 +311,6 @@ final class AuraPitchBridge {
 
     private func candidateIndex(after delta: Int) -> Int? {
         guard !queue.isEmpty else { return nil }
-        if repeatMode == 2 && delta > 0 { return currentIndex }
         if shuffle && delta > 0 && queue.count > 1 {
             // Randomized deck: every track plays once before the deck refills.
             // The current song cannot be selected again immediately.
@@ -345,7 +344,11 @@ final class AuraPitchBridge {
 
     private func handleFinished() {
         do {
-            if let index = candidateIndex(after: 1) {
+            // Repeat-one applies only when a song ends naturally. The user
+            // must always be able to skip to the next or previous track.
+            if repeatMode == 2 && currentIndex >= 0 && currentIndex < queue.count {
+                try start(index: currentIndex, at: 0)
+            } else if let index = candidateIndex(after: 1) {
                 try start(index: index, at: 0)
             } else {
                 graph.stopPlayback()

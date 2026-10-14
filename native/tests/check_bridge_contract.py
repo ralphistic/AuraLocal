@@ -201,3 +201,17 @@ require("onEnd: () {" in dart and "if (mounted && dismissingPlayer)" in dart and
 
 require("child: Material(color: widget.color" in surfaces,
         "ListTiles render ink on their nearest Material inside blurred sheets")
+
+require("final ScrollController libraryScroll = ScrollController();" in dart and
+        "controller: libraryScroll" in dart and
+        "IgnorePointer(ignoring: !libraryHome, child: buildLibrary())" in dart,
+        "Library scroll position is preserved, clamped, and cannot intercept player touches")
+require("BorderRadius.circular(26)" in surfaces and
+        "BorderRadius.vertical(" not in surfaces,
+        "Floating action panels round all four corners")
+require("Center(child: builder(page))" in surfaces and
+        "Do not apply viewInsets again" in surfaces,
+        "Playlist dialog does not apply a duplicate keyboard inset")
+require("if repeatMode == 2 && currentIndex >= 0" in bridge and
+        "if repeatMode == 2 && delta > 0 { return currentIndex }" not in bridge,
+        "Repeat-one only applies to natural track completion, not manual skip")

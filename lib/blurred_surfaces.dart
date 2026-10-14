@@ -52,10 +52,10 @@ Future<T?> showAuraDialog<T>({
   barrierLabel: 'Close dialog',
   barrierColor: Colors.black.withValues(alpha: 0.20),
   transitionDuration: const Duration(milliseconds: 250),
-  pageBuilder: (page, animation, secondary) => AnimatedPadding(
-    duration: const Duration(milliseconds: 180),
-    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(page).bottom),
-    child: Center(child: builder(page))),
+  // Center the Material dialog in the already keyboard-resized viewport.
+  // Do not apply viewInsets again: the system keyboard would lift the
+  // playlist editor twice or jump it while the text field gets focus.
+  pageBuilder: (page, animation, secondary) => Center(child: builder(page)),
   transitionBuilder: (context, animation, secondary, child) => Stack(children: [
     Positioned.fill(child: IgnorePointer(child: AnimatedBuilder(
       animation: animation,
@@ -97,8 +97,7 @@ class _AuraDraggableSheetState extends State<_AuraDraggableSheet> {
       transform: Matrix4.translationValues(0, distance, 0),
       child: Material(color: Colors.transparent,
         child: Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 0),
-          child: ClipRRect(borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(26)),
+          child: ClipRRect(borderRadius: BorderRadius.circular(26),
             child: ConstrainedBox(constraints: BoxConstraints(
                 maxHeight: height * 0.94),
               // ListTile ink and highlights require an actual Material surface
