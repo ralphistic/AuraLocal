@@ -68,6 +68,7 @@ Future<void> main() async {
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       fontFamily: 'Josefin',
+      sliderTheme: SliderThemeData(trackHeight: 5, thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9), overlayShape: const RoundSliderOverlayShape(overlayRadius: 19), activeTrackColor: GoogleLetterPalette.yellow, inactiveTrackColor: GoogleLetterPalette.creamDivider, thumbColor: GoogleLetterPalette.yellow),
       // Tighter, more substantial 1970s-inspired typography throughout.
       textTheme: const TextTheme(
         displayLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.6),
@@ -1567,7 +1568,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   const SizedBox(height: 6),
                   const SizedBox(height: 12),
                   const Text('Drag a dot up to boost, down to cut',
-                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    style: TextStyle(color: GoogleLetterPalette.creamText, fontSize: 12)),
                   const SizedBox(height: 14),
                   Expanded(child: LayoutBuilder(builder: (_, bounds) =>
                     GestureDetector(behavior: HitTestBehavior.opaque,
@@ -1586,10 +1587,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [for (final hz in eqFrequencies)
                       Expanded(child: Text(hz, textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 9, color: Colors.white70)))]),
+                        style: const TextStyle(fontSize: 10, color: GoogleLetterPalette.creamText)))]),
                   const SizedBox(height: 14),
                   Row(children: [
-                    const Text('Preamp', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const Text('Preamp', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
                     const Spacer(),
                     Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
                   ]),
@@ -1626,7 +1627,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(eqEnabled ? 'EQ enabled' : 'EQ bypassed',
-                        style: const TextStyle(color: Colors.white70)),
+                        style: const TextStyle(color: GoogleLetterPalette.creamText)),
                       TextButton.icon(
                         onPressed: () {
                           refresh(() => eqEnabled = !eqEnabled);
@@ -1753,7 +1754,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(22, 16, 22, 24),
           child: Column(mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center, children: [
-            const Text('Tempo', style: TextStyle(fontWeight: FontWeight.w800)),
+            const Text('Tempo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
             Text('${(playbackSpeed * 100).round()}%'),
             dragOnlySlider(value: playbackSpeed < 1
                 ? (playbackSpeed - 1) * 2 : playbackSpeed - 1,
@@ -1798,7 +1799,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 updateNativePitchTempo();
               }),
             if (!linkedPitchTempo) ...[
-            const Text('Pitch', style: TextStyle(fontWeight: FontWeight.w800)),
+            const Text('Pitch', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
             Text('${(pitchSemitones + pitchCents / 100).toStringAsFixed(2)} st'),
             Semantics(
               label: 'Pitch slider. Drag to change pitch; double tap to reset. Use Fine tune for semitones and cents.',
@@ -1834,9 +1835,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 setState(() {});
                 scheduleEQUpdate();
               }, onChangeEnd: (_) => applyNativeEQ()),
-            const SizedBox(height: 6),
+            const SizedBox(height: 22),
             IconButton(tooltip: 'Open precision tuning wheels',
-              icon: const _TuningForkIcon(),
+              icon: DecoratedBox(decoration: BoxDecoration(color: GoogleLetterPalette.creamDivider, borderRadius: BorderRadius.circular(17)), child: const Padding(padding: EdgeInsets.all(13), child: _TuningForkIcon())),
               onPressed: () => showThreePrecisionWheels(refresh)),
             TextButton(onPressed: () async {
               refresh(() { pitchSemitones = 0; pitchCents = 0; playbackSpeed = 1; });
@@ -2260,7 +2261,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           if (!libraryPlaylistsPage) { activePlaylist = null; favoritesOnly = false; }
         }),
         label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
-          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
+          style: const TextStyle(fontSize: 29, fontWeight: FontWeight.w900,
             color: Color(0xFF221A1B))),
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
           color: Color(0xFF221A1B))), actions: [
@@ -2274,7 +2275,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           child: CustomPaint(painter: _ColorTileBorder())),
         ColoredBox(color: GoogleLetterPalette.cream,
           child: Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-            child: SizedBox(height: 38, child: TextField(
+            child: SizedBox(height: 46, child: TextField(
           style: const TextStyle(fontSize: 14, color: Colors.white,
             fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
@@ -2510,15 +2511,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       backgroundColor: GoogleLetterPalette.cream,
       appBar: AppBar(
         backgroundColor: GoogleLetterPalette.cream,
-        foregroundColor: GoogleLetterPalette.blue,
+        foregroundColor: GoogleLetterPalette.ink,
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
-        title: const Text('Now Playing', maxLines: 1, softWrap: false,
+        title: const Text('', maxLines: 1, softWrap: false,
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
         titleSpacing: 0,
         actions: [
           TextButton(onPressed: showEqualizer,
-            child: const Text('EQ', style: TextStyle(fontWeight: FontWeight.w900,
+            child: const Text('EQ', style: TextStyle(color: GoogleLetterPalette.ink, fontWeight: FontWeight.w900,
               fontSize: 18, letterSpacing: 0.8))),
           PopupMenuButton<String>(tooltip: 'More player actions',
             onSelected: (value) {
@@ -2537,8 +2538,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           primary: false,
           padding: const EdgeInsets.fromLTRB(22, 6, 22, 28),
           children: [
-          SizedBox(height: math.max(30.0, viewport.maxHeight * 0.10)),
-          SizedBox(height: math.min(viewport.maxHeight * 0.40, 330),
+          SizedBox(height: math.max(8.0, viewport.maxHeight * 0.015)),
+          SizedBox(height: math.min(viewport.maxHeight * 0.46, 410),
             child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
@@ -2551,9 +2552,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
               onSave: (data) => saveTrackMetadata(path, data)));
           }))),
-          const SizedBox(height: 22),
+          const SizedBox(height: 14),
           Row(children: [
-            Expanded(child: SizedBox(height: 38, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: GoogleLetterPalette.blue)))),
+            Expanded(child: SizedBox(height: 43, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)))),
             if (currentIndex >= 0 && currentIndex < files.length)
               IconButton(tooltip: 'Technical metadata', icon: const Icon(Icons.info_outline_rounded),
                 onPressed: () => showTrackDetails(files[currentIndex])),
@@ -2578,7 +2579,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 [listeningOutput, if (listeningCodec.isNotEmpty) listeningCodec,
                   if (sourceLossless) 'Lossless source'].join('  •  '),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 10, color: GoogleLetterPalette.blue)))),
+                style: const TextStyle(fontSize: 11, color: GoogleLetterPalette.creamText)))),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: dragOnlySlider(value: effectivePosition.clamp(0.0, maximum).toDouble(),
             min: 0, max: maximum,
             onChanged: (value) => setState(() {
@@ -2594,7 +2595,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ])),
           const SizedBox(height: 10),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            IconButton(tooltip: 'Shuffle', color: shuffle ? GoogleLetterPalette.blue : GoogleLetterPalette.creamText,
+            IconButton(tooltip: 'Shuffle', color: shuffle ? GoogleLetterPalette.green : GoogleLetterPalette.creamText,
               onPressed: () async {
                 setState(() => shuffle = !shuffle);
                 await syncQueue(); await saveLibrary();
@@ -2605,12 +2606,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               onLongPressEnd: (_) => stopTransportHold(),
               onLongPressCancel: stopTransportHold,
               child: const SizedBox(width: 52, height: 56,
-                child: Center(child: Icon(Icons.skip_previous_rounded, size: 36)))),
-            IconButton.filled(onPressed: files.isEmpty ? import : togglePlayback,
+                child: Center(child: Icon(Icons.skip_previous_rounded, size: 43)))),
+            IconButton(onPressed: files.isEmpty ? import : togglePlayback,
+              style: IconButton.styleFrom(foregroundColor: GoogleLetterPalette.ink),
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 160),
                 transitionBuilder: (child, animation) =>
                   ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
-                child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, key: ValueKey(isPlaying), size: 38))),
+                child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, key: ValueKey(isPlaying), size: 49))),
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: files.isEmpty ? null : () => skipTrack(1),
@@ -2620,9 +2622,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: Semantics(label: 'Next track; hold to scrub forward',
                 button: true,
                 child: const SizedBox(width: 52, height: 56,
-                  child: Center(child: Icon(Icons.skip_next_rounded, size: 36))))),
+                  child: Center(child: Icon(Icons.skip_next_rounded, size: 43))))),
             Column(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? GoogleLetterPalette.creamText : GoogleLetterPalette.blue,
+              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? GoogleLetterPalette.creamText : GoogleLetterPalette.red,
                 onPressed: () async {
                   setState(() => repeat = (repeat + 1) % 3);
                   await syncQueue(); await saveLibrary();
@@ -2841,19 +2843,19 @@ class EditableEqCurvePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final grid = Paint()..color = const Color(0x55FFFFFF)..strokeWidth = 1;
+    final grid = Paint()..color = GoogleLetterPalette.creamDivider..strokeWidth = 1;
     for (final db in [-12.0, -6.0, 0.0, 6.0, 12.0]) {
       final y = (12 - db) / 24 * size.height;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
       final text = TextPainter(text: TextSpan(text: '${db.toInt() > 0 ? '+' : ''}${db.toInt()} dB',
-        style: const TextStyle(fontSize: 10, color: Color(0x88FFFFFF))),
+        style: const TextStyle(fontSize: 10, color: GoogleLetterPalette.creamText)),
         textDirection: TextDirection.ltr)..layout();
       text.paint(canvas, Offset(3, math.max(0, y - 13)));
     }
     for (var i = 0; i < gains.length; i++) {
       final x = size.width * (i + 0.5) / gains.length;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height),
-        Paint()..color = const Color(0x20FFFFFF)..strokeWidth = 1);
+        Paint()..color = GoogleLetterPalette.creamDivider..strokeWidth = 1);
     }
     final path = Path();
     for (var i = 0; i < gains.length; i++) {
@@ -2861,8 +2863,9 @@ class EditableEqCurvePainter extends CustomPainter {
           (12 - gains[i]) / 24 * size.height);
       if (i == 0) { path.moveTo(pos.dx, pos.dy); }
       else { path.lineTo(pos.dx, pos.dy); }
-      canvas.drawCircle(pos, 9, Paint()..color = accent);
-      canvas.drawCircle(pos, 4, Paint()..color = const Color(0xFF352729));
+      const palette = [GoogleLetterPalette.yellow, GoogleLetterPalette.red, GoogleLetterPalette.blue, GoogleLetterPalette.green];
+      canvas.drawCircle(pos, 9, Paint()..color = palette[i % palette.length]);
+      canvas.drawCircle(pos, 3, Paint()..color = GoogleLetterPalette.cream);
     }
     canvas.drawPath(path, Paint()..color = accent..strokeWidth = 3
       ..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round
