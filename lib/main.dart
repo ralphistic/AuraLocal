@@ -358,7 +358,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   List<int> orderedTrackIndices() => List<int>.generate(files.length, (i) => i)
     .where((i) => (activePlaylist == null || (playlists[activePlaylist]?.contains(files[i]) ?? false))
       && (!favoritesOnly || favorites.contains(files[i]))
-      && displayName(files[i]).toLowerCase().contains(query.toLowerCase()))
+      && (query.isEmpty || displayName(files[i]).toLowerCase().contains(query.toLowerCase()) ||
+          (originalNames[files[i]] ?? files[i].split('/').last).toLowerCase().contains(query.toLowerCase())))
     .toList()..sort(compareTracks);
 
   Future<void> syncQueue() async {
@@ -950,7 +951,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     }
   }
 
-  void showLibrary() => dismissPlayer();
+  void showLibrary() {
+    if (query.isNotEmpty || favoritesOnly || activePlaylist != null) {
+      searchController.clear();
+      setState(() { query = ''; favoritesOnly = false; activePlaylist = null; });
+    }
+    dismissPlayer();
+  }
 
   // Restore the original magnetic, finger-tracked player animation (431aa9e).
   void dismissPlayer() {
@@ -1919,10 +1926,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       transitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
         alignment: Alignment.centerRight,
-        child: SafeArea(left: false, child: Material(color: const Color(0xFF352729),
+        child: Material(color: const Color(0xFF352729),
           child: SizedBox(width: MediaQuery.sizeOf(dialogContext).width * 0.84,
             height: double.infinity,
-            child: ListView(padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+            child: SafeArea(left: false, child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
               children: [
                 Row(children: [
                   const Expanded(child: Text('Library options',
@@ -1931,6 +1939,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     onPressed: () => Navigator.pop(dialogContext)),
                 ]),
                 const Divider(),
+                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text('IMPORT MUSIC', style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
                 ListTile(leading: const Icon(Icons.link_rounded),
                   title: const Text('Link originals from Files'),
                   subtitle: const Text('No duplicate audio copies'),
@@ -1938,12 +1949,20 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 ListTile(leading: const Icon(Icons.file_copy_rounded),
                   title: const Text('Copy music into app'),
                   onTap: () { Navigator.pop(dialogContext); import(); }),
+                const Divider(),
+                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text('LIBRARY INDEX', style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
                 ListTile(leading: const Icon(Icons.save_alt_rounded),
                   title: const Text('Export library index'),
                   onTap: () { Navigator.pop(dialogContext); exportLibraryIndex(); }),
                 ListTile(leading: const Icon(Icons.folder_open_rounded),
                   title: const Text('Restore library index'),
                   onTap: () { Navigator.pop(dialogContext); restoreLibraryIndex(); }),
+                const Divider(),
+                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text('BACKUP & RESTORE', style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
                 ListTile(leading: const Icon(Icons.backup_rounded),
                   title: const Text('Back up library'),
                   onTap: () { Navigator.pop(dialogContext); exportLibraryBackup(); }),
@@ -1951,6 +1970,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   title: const Text('Restore backup'),
                   onTap: () { Navigator.pop(dialogContext); restoreLibraryBackup(); }),
                 const Divider(),
+                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text('LIBRARY MAINTENANCE', style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
                 ListTile(leading: const Icon(Icons.playlist_remove_rounded),
                   title: const Text('Clear remembered song list'),
                   subtitle: const Text('Does not delete original music'),
@@ -2081,8 +2103,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 ListTile(
                 tileColor: index == currentIndex ? const Color(0x665A3A18) : null,
                 shape: const Border(left: BorderSide(color: Color(0xFF221A1B), width: 2)),
-                leading: Icon(index == currentIndex ? Icons.graphic_eq_rounded : Icons.music_note_rounded,
-                  color: index == currentIndex ? const Color(0xFFF08078) : Colors.white70),
+                leading: index == currentIndex
+                  ? ValueListenableBuilder<List<double>>(valueListenable: waveformLevels,
+                      builder: (_, levels, __) => SizedBox(width: 24, height: 28,
+                        child: CustomPaint(painter: MiniMusicBarsPainter(
+                          levels: levels, active: isPlaying))))
+                  : const Icon(Icons.music_note_rounded, color: Colors.white70),
                 title: Text(displayName(files[index]), maxLines: 2, overflow: TextOverflow.fade,
                   style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.5)),
                 subtitle: Text(
@@ -2114,8 +2140,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             decoration: const BoxDecoration(color: Color(0xFF5D3031),
               borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
             child: Padding(padding: EdgeInsets.fromLTRB(12, 0, 12,
-              MediaQuery.paddingOf(context).bottom), child: ListTile(
-            leading: const Icon(Icons.graphic_eq_rounded, color: Color(0xFFFFB8A5)),
+              MediaQuery.paddingOf(context).bottom * 0.6), child: ListTile(
+            leading: ValueListenableBuilder<List<double>>(
+              valueListenable: waveformLevels,
+              builder: (_, levels, __) => SizedBox(width: 26, height: 28,
+                child: CustomPaint(painter: MiniMusicBarsPainter(
+                  levels: levels, active: isPlaying)))),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
             onTap: showPlayer,
             trailing: IconButton(
@@ -2169,7 +2199,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           padding: const EdgeInsets.fromLTRB(22, 6, 22, 28),
           children: [
           SizedBox(height: math.max(30.0, viewport.maxHeight * 0.10)),
-          SizedBox(height: math.min(viewport.maxHeight * 0.32, 260),
+          SizedBox(height: math.min(viewport.maxHeight * 0.40, 330),
             child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
@@ -2274,12 +2304,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       ),
       // The transport double-tap targets live in clear margins below artwork,
       // leaving gestures on the title, controls and progress slider untouched.
-      Positioned(left: 0, top: viewport.maxHeight * 0.40, bottom: 0,
-        width: 45, child: GestureDetector(
+      Positioned(left: 0, top: viewport.maxHeight * 0.24,
+        height: viewport.maxHeight * 0.49, width: 52, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(-10))),
-      Positioned(right: 0, top: viewport.maxHeight * 0.40, bottom: 0,
-        width: 45, child: GestureDetector(
+      Positioned(right: 0, top: viewport.maxHeight * 0.24,
+        height: viewport.maxHeight * 0.49, width: 52, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(10))),
       ]))),
@@ -2299,20 +2329,47 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
           curve: Curves.easeOutCubic,
           transform: Matrix4.translationValues(0, playerDrag.clamp(0.0, height), 0),
-          child: GestureDetector(
+          child: ClipRRect(borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(20)), child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
             onVerticalDragUpdate: (details) => setState(() => playerDrag = (playerDrag + details.delta.dy).clamp(0.0, height).toDouble()),
             onVerticalDragEnd: finishPlayerDrag,
             onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
             child: buildPlayer(),
-          ),
+          )),
         ),
     ]);
   }
 }
 
 /// Single live horizontal EQ-frequency contour, driven by actual PCM analysis.
+class MiniMusicBarsPainter extends CustomPainter {
+  final List<double> levels;
+  final bool active;
+  const MiniMusicBarsPainter({required this.levels, required this.active});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = const Color(0xFFF08078)
+      ..strokeWidth = 3.5..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 4; i++) {
+      final start = i * 11;
+      final group = levels.skip(start).take(11).toList();
+      final strength = group.isEmpty ? 0.0 :
+          group.reduce(math.max).clamp(0.0, 1.0);
+      final height = active ? 5 + strength * (size.height - 6) : 4.0;
+      final x = size.width * (i + 0.5) / 4;
+      canvas.drawLine(Offset(x, (size.height - height) / 2),
+        Offset(x, (size.height + height) / 2), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant MiniMusicBarsPainter old) =>
+      old.active != active || old.levels != levels;
+}
+
 class LiveWaveformPainter extends CustomPainter {
   final List<double> samples;
   final bool isPlaying;
@@ -2363,9 +2420,18 @@ class EditableEqCurvePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final grid = Paint()..color = const Color(0x55FFFFFF)..strokeWidth = 1;
-    for (final db in [-12.0, 0.0, 12.0]) {
+    for (final db in [-12.0, -6.0, 0.0, 6.0, 12.0]) {
       final y = (12 - db) / 24 * size.height;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+      final text = TextPainter(text: TextSpan(text: '${db.toInt() > 0 ? '+' : ''}${db.toInt()} dB',
+        style: const TextStyle(fontSize: 10, color: Color(0x88FFFFFF))),
+        textDirection: TextDirection.ltr)..layout();
+      text.paint(canvas, Offset(3, math.max(0, y - 13)));
+    }
+    for (var i = 0; i < gains.length; i++) {
+      final x = size.width * (i + 0.5) / gains.length;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height),
+        Paint()..color = const Color(0x20FFFFFF)..strokeWidth = 1);
     }
     final path = Path();
     for (var i = 0; i < gains.length; i++) {

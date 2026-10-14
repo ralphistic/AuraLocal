@@ -34,6 +34,19 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
       flip.reverse();
     }
   }
+  bool get hasArtwork => widget.embeddedArtwork != null ||
+      (widget.metadata['artworkUrl'] ?? '').isNotEmpty ||
+      (widget.metadata['artworkData'] ?? '').isNotEmpty;
+
+  Future<void> confirmEdit() async {
+    final edit = await showModalBottomSheet<bool>(context: context,
+      builder: (sheet) => SafeArea(child: ListTile(
+        leading: const Icon(Icons.edit_rounded),
+        title: const Text('Edit Metadata?'),
+        onTap: () => Navigator.pop(sheet, true))));
+    if (edit == true && mounted) await openEditor(context);
+  }
+
   void toggle() {
     if (widget.embeddedArtwork != null ||
         (widget.metadata['artworkUrl'] ?? '').isNotEmpty ||
@@ -50,12 +63,15 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
       final t = Curves.easeInOutCubic.transform(flip.value);
       final rotation = math.pi * t;
       final rear = rotation > math.pi / 2;
-      return GestureDetector(onTap: toggle,
+      return GestureDetector(
+        onTap: hasArtwork ? null : toggle,
+        onLongPress: confirmEdit,
         child: Transform(transform: Matrix4.identity()..setEntry(3, 2, 0.0012)..rotateY(rotation),
           alignment: Alignment.center, child: Transform(
             alignment: Alignment.center,
             transform: Matrix4.identity()..rotateY(rear ? math.pi : 0),
-            child: ClipRect(child: DecoratedBox(
+            child: ClipRRect(borderRadius: BorderRadius.circular(8),
+              child: DecoratedBox(
               decoration: const BoxDecoration(gradient: LinearGradient(
                 colors: [Color(0xFFFFB8A5), Color(0xFFF08078)])),
               child: rear ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -66,7 +82,8 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
                 const SizedBox(height: 8),
                 FilledButton.tonal(onPressed: () => findOnline(context), child: const Text('Find online')),
                 const SizedBox(height: 14),
-                const Text('Tap to flip back', style: TextStyle(color: Color(0xFF221A1B))),
+                const Text('Tap to flip back', style: TextStyle(
+                  fontSize: 11, color: Color(0xFF221A1B))),
               ]) : _front(),
             )),
           )),
@@ -87,7 +104,7 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
           ? _generic() : Image.memory(widget.embeddedArtwork!, fit: BoxFit.cover))
       else if (widget.embeddedArtwork != null) Image.memory(widget.embeddedArtwork!, fit: BoxFit.cover)
       else _generic(),
-      const Positioned(right: 10, bottom: 10,
+      if (!hasArtwork) const Positioned(right: 10, bottom: 10,
         child: Icon(Icons.flip_camera_android, color: Color(0xFF221A1B))),
     ]);
   }
@@ -108,9 +125,17 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
           padding: EdgeInsets.fromLTRB(18, 18, 18, MediaQuery.viewInsetsOf(sheet).bottom + 18),
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('Track metadata', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            for (var i = 0; i < keys.length; i++) Padding(
-              padding: const EdgeInsets.symmetric(vertical: 5),
-              child: TextField(controller: controllers[keys[i]], decoration: InputDecoration(labelText: labels[i]))),
+            for (final section in [
+              ('BASIC INFORMATION', 0, 3),
+              ('TRACK INFORMATION', 3, 8),
+              ('NOTES & ARTWORK', 8, keys.length),
+            ]) ExpansionTile(title: Text(section.$1,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+              initiallyExpanded: section.$2 == 0,
+              children: [for (var i = section.$2; i < section.$3; i++) Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: TextField(controller: controllers[keys[i]],
+                  decoration: InputDecoration(labelText: labels[i])))]),
             const SizedBox(height: 12),
             OutlinedButton.icon(icon: const Icon(Icons.image),
               label: const Text('Choose high-resolution artwork from Files'),
