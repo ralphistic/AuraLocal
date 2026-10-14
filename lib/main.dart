@@ -2188,9 +2188,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           libraryPlaylistsPage = !libraryPlaylistsPage;
           if (!libraryPlaylistsPage) { activePlaylist = null; favoritesOnly = false; }
         }),
-        label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
-          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
-            color: Color(0xFF221A1B))),
+        label: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 440),
+          switchInCurve: Curves.elasticOut,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) => ScaleTransition(
+            alignment: Alignment.centerLeft,
+            scale: Tween<double>(begin: 0.88, end: 1.0).animate(animation),
+            child: FadeTransition(opacity: animation, child: child)),
+          child: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
+            key: ValueKey(libraryPlaylistsPage),
+            style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
+              color: Color(0xFF221A1B)))),
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
           color: Color(0xFF221A1B))), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
@@ -2203,7 +2212,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           gradient: LinearGradient(begin: Alignment.topCenter,
             end: Alignment.bottomCenter, colors: [
               GoogleLetterPalette.yellow, Color(0x00221A1B)]))),
-        Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8), child: SizedBox(height: 38, child: TextField(
+        ColoredBox(color: GoogleLetterPalette.cream,
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+            child: SizedBox(height: 38, child: TextField(
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           textAlignVertical: TextAlignVertical.center,
           controller: searchController,
@@ -2214,15 +2225,27 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             prefixIconConstraints: const BoxConstraints(minWidth: 38, minHeight: 32),
             suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
-        ))),
-        Expanded(child: ClipRect(child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 360),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) => SlideTransition(
-            position: Tween<Offset>(
-              begin: libraryPlaylistsPage ? const Offset(0.90, 0) : const Offset(-0.90, 0),
-              end: Offset.zero).animate(animation), child: child),
+        )))),
+        Expanded(child: ClipRect(child: ColoredBox(
+          color: GoogleLetterPalette.cream, child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 630),
+          switchInCurve: Curves.easeInOutCubicEmphasized,
+          switchOutCurve: Curves.easeInOutCubicEmphasized,
+          layoutBuilder: (current, previous) => Stack(
+            fit: StackFit.expand, children: [
+              ...previous.map((page) => Positioned.fill(child: page)),
+              if (current != null) Positioned.fill(child: current),
+            ]),
+          transitionBuilder: (child, animation) {
+            // Incoming pages always travel RIGHT -> LEFT; outgoing pages
+            // leave LEFT. Returning wraps behind the visible page instead of
+            // reversing direction on every other press.
+            final incoming = animation.status != AnimationStatus.reverse;
+            final offset = incoming ? const Offset(1, 0) : const Offset(-1, 0);
+            return SlideTransition(
+              position: Tween<Offset>(begin: offset, end: Offset.zero)
+                .animate(animation), child: child);
+          },
           child: libraryPlaylistsPage
             ? ListView(key: const ValueKey('playlist-directory'), children: [
           ListTile(leading: const Icon(Icons.add_circle_rounded),
@@ -2236,7 +2259,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 libraryPlaylistsPage = false; activePlaylist = name;
                 favoritesOnly = false; query = ''; searchController.clear();
               })),
-        ]) : Column(key: const ValueKey('song-directory'), children: [
+        ]) : Theme(data: Theme.of(context).copyWith(
+          brightness: Brightness.light,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: GoogleLetterPalette.red, brightness: Brightness.light),
+          textTheme: Theme.of(context).textTheme.apply(
+            bodyColor: GoogleLetterPalette.creamText,
+            displayColor: GoogleLetterPalette.creamText),
+        ), child: Column(key: const ValueKey('song-directory'), children: [
         // Compact library navigation: one menu instead of stacked chip rows.
         Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Row(children: [
           PopupMenuButton<String>(
@@ -2257,18 +2287,21 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             child: Padding(padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Text(activePlaylist ?? (favoritesOnly ? 'Favorites' : 'All songs'),
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                const SizedBox(width: 3), const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+                  style: const TextStyle(fontWeight: FontWeight.w800,
+                    color: GoogleLetterPalette.creamText, fontSize: 14)),
+                const SizedBox(width: 3), const Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 18, color: GoogleLetterPalette.creamText),
               ])),
           ),
           if (activePlaylist != null) IconButton(tooltip: 'Playlist options',
             visualDensity: VisualDensity.compact, icon: const Icon(Icons.more_horiz, size: 18),
             onPressed: () => playlistMenu(activePlaylist!)),
           const Spacer(),
-          Text('${matches.length} songs', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text('${matches.length} songs', style: const TextStyle(
+            color: GoogleLetterPalette.creamText, fontSize: 12)),
           PopupMenuButton<String>(
             tooltip: 'Sort tracks',
-            icon: const Icon(Icons.sort, size: 20),
+            icon: const Icon(Icons.sort, size: 20, color: GoogleLetterPalette.creamText),
             onSelected: chooseLibrarySort,
             itemBuilder: (_) => [
               for (final item in [
@@ -2332,7 +2365,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2, color: Colors.black))),
                 ListTile(
                 shape: const Border(bottom: BorderSide(
-                  color: Color(0x2EFFFFFF), width: 0.6)),
+                  color: GoogleLetterPalette.creamDivider, width: 0.7)),
                 leading: songArtworkThumbnail(files[index]),
                 title: Row(children: [
                   if (index == currentIndex) ...[
@@ -2352,7 +2385,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     child: Text(displayName(files[index]), maxLines: 2,
                       overflow: TextOverflow.fade,
                       style: TextStyle(fontWeight: FontWeight.w700,
-                        color: index == currentIndex ? GoogleLetterPalette.red : Colors.white,
+                        color: index == currentIndex
+                          ? GoogleLetterPalette.red : GoogleLetterPalette.creamText,
                         letterSpacing: -0.5))))),
                 ]),
                 subtitle: Text([
@@ -2365,8 +2399,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     clock(trackDurations[files[index]]!),
                 ].join('  -  '), maxLines: 2, overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: index == currentIndex
-                    ? GoogleLetterPalette.green : Colors.white70)),
-                trailing: IconButton(tooltip: 'Song options', icon: const Icon(Icons.more_vert_rounded),
+                    ? GoogleLetterPalette.green : GoogleLetterPalette.creamText.withValues(alpha: 0.67))),
+                trailing: IconButton(tooltip: 'Song options', color: GoogleLetterPalette.creamText,
+                  icon: const Icon(Icons.more_vert_rounded),
                   onPressed: () => trackMenu(files[index])),
                 onLongPress: () {
                   HapticFeedback.mediumImpact();
@@ -2386,7 +2421,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ),
               ]);
             })),
-        ])))),
+        ])))))),
         if (currentIndex >= 0 && currentIndex < files.length) GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragStart: (_) => startMiniSwipe(),

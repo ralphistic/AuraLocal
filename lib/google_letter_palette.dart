@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 /// The photo's gray background is intentionally NOT adopted.
 /// These are JPEG pixel colors (compression means tiny pixel variation).
 abstract final class GoogleLetterPalette {
-  static const blue = Color(0xFF8BB4F6);
+  // Blue/yellow roles exchanged at the user's request. The names describe
+  // UI roles, preserving every existing reference across screens.
+  static const blue = Color(0xFFF1BF42); // Header / mini-player: mustard.
   static const red = Color(0xFFD7523F);
-  static const yellow = Color(0xFFF1BF42);
+  static const yellow = Color(0xFF8BB4F6); // Former yellow accent: blue.
   static const green = Color(0xFF5AA55D);
   static const ink = Color(0xFF221A1B); // Existing app neutral, not logo gray.
   static const surface = Color(0xFF352729);
   static const dimSurface = Color(0xFF372825);
+  static const cream = Color(0xFFF6EEDC);
+  static const creamDivider = Color(0xFFD6C9B0);
+  static const creamText = Color(0xFF262522);
 }
