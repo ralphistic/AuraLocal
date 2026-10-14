@@ -1582,12 +1582,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     const Spacer(),
                     Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
                   ]),
-                  dragOnlydragOnlySlider(value: preampDb, min: -12, max: 12, divisions: 48,
-              onReset: () {
-                refresh(() => preampDb = 0);
-                setState(() {});
-                applyNativeEQ();
-              },
+                  dragOnlySlider(value: preampDb, min: -12, max: 12, divisions: 48,
                     onReset: () {
                       refresh(() => preampDb = 0);
                       setState(() {});
