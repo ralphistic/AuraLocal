@@ -134,15 +134,15 @@ final class AuraDspGraph {
             let db = 20.0 * log10(max(0.000001, Double(weighted)))
             // Wider visible transients: low-level detail remains visible,
             // while drum attacks move the contour distinctly.
-            let normalized = Float(min(1, max(0, (db + 72.0) / 55.0)))
+            let normalized = Float(min(1, max(0, (db + 77.0) / 68.0)))
             // Exaggerate peaks and preserve quiet valleys; fast attacks, fast decay.
-            target[band] = pow(normalized, 0.94)
+            target[band] = pow(normalized, 1.32)
         }
         waveLock.lock()
         if waveEnabled {
             for i in 0..<bins {
                 let previous = waveValues[i]
-                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 0.72 : 0.45)
+                waveValues[i] = previous + (target[i] - previous) * (target[i] > previous ? 0.88 : 0.65)
             }
         }
         analysisBusy = false
@@ -163,10 +163,10 @@ final class AuraDspGraph {
         }
         generation += 1
         let token = generation
-        // Silence any queued samples of the outgoing track before scheduling
-        // the replacement; avoid a split-second of the prior song.
-        source.volume = 0
+        // Never change the volume of the outgoing song while waiting for the new
+        // file to be prepared. Stop flushes the old node's pending buffers.
         source.stop()
+        source.volume = 1
         waveLock.lock()
         waveValues = Array(repeating: 0, count: 48)
         waveLock.unlock()
@@ -190,22 +190,10 @@ final class AuraDspGraph {
             }
         }
         if !engine.isRunning { try engine.start() }
-        // Offline native regression tests render synchronously without pumping
-        // the main dispatch queue. Do not leave their player permanently muted.
-        if engine.manualRenderingMode != .offline {
-            source.volume = 0
-        } else {
-            source.volume = 1
-        }
+        // Avoid per-track gain envelopes: those audibly pump the old song during
+        // switching and make long-press playback sound compressed.
+        source.volume = 1
         source.play()
-        if engine.manualRenderingMode != .offline {
-            for step in 1...8 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.004) { [weak self] in
-                    guard let self = self, self.generation == token else { return }
-                    self.source.volume = Float(step) / 8.0
-                }
-            }
-        }
     }
     func pausePlayback() {
         // iOS can already have stopped the underlying player by the time its
@@ -290,6 +278,18 @@ final class AuraDspGraph {
         let boost = max(0, gains.max() ?? 0)
         equalizer.globalGain = enabled ? -min(boost, 6) : 0
         equalizer.bypass = !enabled
+    }
+    func setTemporaryRate(_ rate: Float) throws {
+        guard rate.isFinite, (0.5...2).contains(rate) else {
+            throw NSError(domain: "AuraDSP", code: 12,
+                           userInfo: [NSLocalizedDescriptionKey: "Invalid temporary rate"])
+        }
+        try configure()
+        let playbackPosition = positionSeconds
+        // Preserve pitch-offset settings; only raise tempo while the button is held.
+        timePitch.rate = rate
+        anchorSeconds = playbackPosition
+        anchorUptime = ProcessInfo.processInfo.systemUptime
     }
     func setTimePitch(tempo: Float, semitones: Float, linked: Bool = false) throws {
         guard tempo.isFinite, semitones.isFinite, (0.5...2).contains(tempo),

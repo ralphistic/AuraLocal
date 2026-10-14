@@ -138,8 +138,11 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final songDSP = <String, List<double>>{};
   bool globalDSP = false;
   bool linkedPitchTempo = false;
-  Timer? seekHoldTimer;
-  int seekHoldTicks = 0;
+  bool holdingFastForward = false;
+  bool holdForwardStarting = false;
+  double? holdOriginalTempo;
+  int holdRequestGeneration = 0;
+  bool linkedDragging = false;
   final searchController = TextEditingController();
   int dspRequestGeneration = 0;
   bool isPlaying = false;
@@ -197,7 +200,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
         final before = previous[i];
-        return before + (target - before) * (target > before ? 0.72 : 0.36);
+        return before + (target - before) * (target > before ? 0.84 : 0.56);
       });
       waveformLevels.value = next;
     });
@@ -208,7 +211,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   @override
   void dispose() {
     pollTimer?.cancel();
-    seekHoldTimer?.cancel();
     dspWheelDebounce?.cancel();
     eqDebounce?.cancel();
     spectrumTicker?.dispose();
@@ -401,7 +403,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     dspSaveDebounce?.cancel();
     final request = ++dspRequestGeneration;
     final tempo = playbackSpeed;
-    final cents = (pitchSemitones * 100 + pitchCents).clamp(-1200.0, 1200.0).toDouble();
+    final cents = linkedPitchTempo ? 0.0 : (pitchSemitones * 100 + pitchCents).clamp(-1200.0, 1200.0).toDouble();
     saveSongDSP();
     try {
       await nativeDsp.invokeMethod('setTimePitch', {'tempo': tempo, 'cents': cents, 'linked': linkedPitchTempo});
@@ -909,21 +911,40 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> seekSeconds(int seconds) async => seekTo(positionSeconds + seconds);
 
-  void beginHoldSeek(int direction) {
-    seekHoldTimer?.cancel();
-    seekHoldTicks = 0;
-    seekHoldTimer = Timer.periodic(const Duration(milliseconds: 180), (_) {
-      if (currentIndex < 0 || durationSeconds <= 0) return;
-      seekHoldTicks++;
-      final step = seekHoldTicks < 7 ? 1 : seekHoldTicks < 18 ? 3 : 6;
-      seekSeconds(direction * step);
-    });
+  Future<void> startFastForward() async {
+    if (currentIndex < 0 || holdingFastForward || holdForwardStarting) return;
+    holdForwardStarting = true;
+    final token = ++holdRequestGeneration;
+    holdOriginalTempo = playbackSpeed;
+    try {
+      await nativeDsp.invokeMethod('setTemporaryRate',
+          {'rate': (playbackSpeed * 1.5).clamp(0.5, 2.0).toDouble()});
+      if (token == holdRequestGeneration) {
+        holdingFastForward = true;
+      } else {
+        // The finger was already lifted while the native request was pending.
+        await nativeDsp.invokeMethod('setTemporaryRate',
+            {'rate': holdOriginalTempo ?? playbackSpeed});
+      }
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Fast forward: ${e.message}');
+    } finally {
+      holdForwardStarting = false;
+    }
   }
 
-  void endHoldSeek() {
-    seekHoldTimer?.cancel();
-    seekHoldTimer = null;
-    seekHoldTicks = 0;
+  Future<void> stopFastForward() async {
+    if (!holdingFastForward && !holdForwardStarting) return;
+    holdRequestGeneration++;
+    holdingFastForward = false;
+    holdForwardStarting = false;
+    try {
+      await nativeDsp.invokeMethod('setTemporaryRate',
+          {'rate': holdOriginalTempo ?? playbackSpeed});
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = 'Fast forward: ${e.message}');
+    }
+    holdOriginalTempo = null;
   }
 
   Future<void> toggleWaveform() async {
@@ -1465,6 +1486,21 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             const Text('Adjust the one native audio engine. Your original FLAC files remain unchanged.',
               textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 14),
+            if (linkedPitchTempo) ...[
+              Text('Tempo ${(playbackSpeed * 100).round()}%  -  Pitch ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones st / ${pitchCents.toStringAsFixed(0)} cents'),
+              Slider(value: playbackSpeed.clamp(0.5, 2.0), min: 0.5, max: 2.0, divisions: 150,
+                onChanged: (value) {
+                  refresh(() {
+                    playbackSpeed = value;
+                    final cents = (1200 * math.log(value) / math.ln2).round().clamp(-1200, 1200);
+                    pitchSemitones = (cents / 100).truncate();
+                    pitchCents = (cents - pitchSemitones * 100).toDouble();
+                  });
+                  setState(() {});
+                  scheduleNativePitchTempoUpdate();
+                },
+                onChangeEnd: (_) => updateNativePitchTempo()),
+            ] else ...[
             Text('Pitch: ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones semitones  |  ${pitchCents >= 0 ? '+' : ''}${pitchCents.toStringAsFixed(0)} cents'),
             // Drag the combined pitch slider, double-tap to reset, or use
             // the dedicated precision picker for semitones and cents.
@@ -1546,10 +1582,24 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               child: Slider(value: playbackSpeed, min: 0.5, max: 2.0, divisions: 150,
                 onChanged: (value) { refresh(() => playbackSpeed = value); setState(() {}); scheduleNativePitchTempoUpdate(); },
                 onChangeEnd: (_) => updateNativePitchTempo())),
+            ],
             SwitchListTile.adaptive(title: const Text('Link pitch to tempo'),
               subtitle: const Text('Tape-speed behavior: speed and pitch move together'),
               value: linkedPitchTempo,
-              onChanged: (enabled) { refresh(() => linkedPitchTempo = enabled); updateNativePitchTempo(); }),
+              onChanged: (enabled) {
+                refresh(() {
+                  linkedPitchTempo = enabled;
+                  if (enabled) {
+                    // Link from the current tempo, preserving current pitch as
+                    // an independent editable value after unlinking.
+                    final cents = (1200 * math.log(playbackSpeed) / math.ln2)
+                        .round().clamp(-1200, 1200);
+                    pitchSemitones = (cents / 100).truncate();
+                    pitchCents = (cents - pitchSemitones * 100).toDouble();
+                  }
+                });
+                updateNativePitchTempo();
+              }),
             SwitchListTile.adaptive(title: const Text('Use global pitch and tempo'), value: globalDSP,
               onChanged: (enabled) async { refresh(() => globalDSP = enabled); await loadSongDSP(); await saveLibrary(); }),
             TextButton(onPressed: () async {
@@ -1983,7 +2033,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               syncQueue();
             }, child: const Text('Show all songs')),
           ])))
-        else Expanded(child: files.isEmpty
+        else Flexible(fit: files.isEmpty ? FlexFit.tight : FlexFit.loose, child: files.isEmpty
           ? Center(child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -2001,7 +2051,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
               ]))
-          : ListView.builder(itemCount: matches.length, itemBuilder: (_, row) {
+          : ListView.builder(shrinkWrap: true, primary: false,
+              physics: const ClampingScrollPhysics(),
+              itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];
               final extension = files[index].split('.').last.toUpperCase();
               final previousExtension = row > 0 ? files[matches[row - 1]].split('.').last.toUpperCase() : '';
@@ -2040,7 +2092,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragEnd: finishMiniSwipe,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 240),
-            color: const Color(0xFF5D3031),
+            margin: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(color: const Color(0xFF5D3031),
+              borderRadius: BorderRadius.circular(18)),
             child: ListTile(
             leading: const Icon(Icons.graphic_eq_rounded, color: Color(0xFFFFB8A5)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -2071,7 +2125,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         foregroundColor: const Color(0xFFFFB8A5),
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
-        title: const Text('Now Playing'),
+        title: const Text('Now Playing', maxLines: 1, softWrap: false,
+          style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+        titleSpacing: 0,
         actions: [
           IconButton(tooltip: 'Toggle live waveform', onPressed: toggleWaveform,
             color: waveformVisible ? const Color(0xFFFFB8A5) : Colors.white,
@@ -2079,12 +2135,19 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           IconButton(tooltip: 'Equalizer', icon: const Icon(Icons.equalizer_rounded),
             color: eqEnabled ? activeEqAccent : Colors.white,
             onPressed: showEqualizer),
-          IconButton(tooltip: 'Queue', icon: const Icon(Icons.queue_music_rounded), onPressed: showQueue),
-          IconButton(tooltip: 'Link music from Files', icon: const Icon(Icons.add_circle_outline_rounded), onPressed: importInPlace),
+          PopupMenuButton<String>(tooltip: 'More player actions',
+            onSelected: (value) {
+              if (value == 'queue') showQueue();
+              if (value == 'import') importInPlace();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'queue', child: Text('Queue')),
+              PopupMenuItem(value: 'import', child: Text('Import from Files')),
+            ], icon: const Icon(Icons.more_vert_rounded)),
         ],
       ),
       body: SafeArea(child: LayoutBuilder(builder: (context, viewport) =>
-        ListView(
+        Stack(children: [ListView(
           key: const PageStorageKey<String>('now-playing-content'),
           primary: false,
           padding: const EdgeInsets.fromLTRB(22, 6, 22, 28),
@@ -2166,8 +2229,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 transitionBuilder: (child, animation) =>
                   ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
                 child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, key: ValueKey(isPlaying), size: 38))),
-            IconButton(tooltip: 'Next track', onPressed: files.isEmpty ? null : () => skipTrack(1),
-              icon: const Icon(Icons.skip_next_rounded), iconSize: 36),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: files.isEmpty ? null : () => skipTrack(1),
+              onLongPressStart: currentIndex < 0 ? null : (_) => startFastForward(),
+              onLongPressEnd: (_) => stopFastForward(),
+              onLongPressCancel: stopFastForward,
+              child: Semantics(label: 'Next track; hold to speed up playback',
+                button: true,
+                child: const SizedBox(width: 52, height: 56,
+                  child: Center(child: Icon(Icons.skip_next_rounded, size: 36))))),
             Column(mainAxisSize: MainAxisSize.min, children: [
               IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? Colors.white : const Color(0xFFFFB8A5),
                 onPressed: () async {
@@ -2178,17 +2249,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 style: const TextStyle(fontSize: 10, color: Colors.white)),
             ]),
           ]),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            IconButton(tooltip: 'Back 10 seconds', iconSize: 32,
-              onPressed: currentIndex < 0 ? null : () => seekSeconds(-10),
-              icon: const Icon(Icons.replay_10_rounded)),
-            const SizedBox(width: 16),
-            GestureDetector(onLongPressStart: currentIndex < 0 ? null : (_) => beginHoldSeek(1),
-              onLongPressEnd: (_) => endHoldSeek(), onLongPressCancel: endHoldSeek,
-              child: IconButton(tooltip: 'Forward 10 seconds; hold to fast-forward', iconSize: 32,
-                onPressed: currentIndex < 0 ? null : () => seekSeconds(10),
-                icon: const Icon(Icons.forward_10_rounded))),
-          ]),
+          const SizedBox(height: 12),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music_rounded),
               label: const Text('Library')),
@@ -2204,7 +2265,19 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],
-      ))),
+      ),
+      // Dedicated narrow, transparent seek areas in the side gutters.
+      // Double-tap only; a single tap or scroll does not seek.
+      Positioned.fill(child: Row(children: [
+        GestureDetector(behavior: HitTestBehavior.translucent,
+          onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(-10),
+          child: const SizedBox(width: 24)),
+        const Spacer(),
+        GestureDetector(behavior: HitTestBehavior.translucent,
+          onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(10),
+          child: const SizedBox(width: 24)),
+      ])),
+      ]))),
     );
   }
 
@@ -2247,13 +2320,13 @@ class LiveWaveformPainter extends CustomPainter {
     // post-EQ audio tap rather than showing a collection of vertical bars.
     final baseline = size.height * 0.5;
     final span = size.height * 0.47;
+    // Each X coordinate maps to a real spectral band, bass on the left and
+    // treble on the right. Varying values, not a repeated sine wave, determine
+    // the contour; no decorative oscillation is injected into silent audio.
     final points = <Offset>[
       for (var i = 0; i < samples.length; i++)
-        Offset(
-          size.width * i / (samples.length - 1),
-          baseline + math.sin(i * math.pi * 0.58) *
-              math.pow(samples[i].clamp(0.0, 1.0), 0.40).toDouble() * span,
-        ),
+        Offset(size.width * i / (samples.length - 1),
+          baseline - math.pow(samples[i].clamp(0.0, 1.0), 0.75).toDouble() * span),
     ];
     final curve = Path()..moveTo(points.first.dx, points.first.dy);
     for (var i = 1; i < points.length - 1; i++) {

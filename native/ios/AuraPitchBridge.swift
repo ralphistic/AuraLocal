@@ -187,6 +187,13 @@ final class AuraPitchBridge {
                         })?.dataValue
                         DispatchQueue.main.async { result(art?.base64EncodedString()) }
                     }
+                case "setTemporaryRate":
+                    guard let args = call.arguments as? [String: Any],
+                          let rate = (args["rate"] as? NSNumber)?.floatValue else {
+                        throw self.argumentError("Missing temporary rate")
+                    }
+                    try self.graph.setTemporaryRate(rate)
+                    result(true)
                 case "setTimePitch":
                     guard let args = call.arguments as? [String: Any],
                           let tempo = (args["tempo"] as? NSNumber)?.floatValue,
