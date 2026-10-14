@@ -2465,7 +2465,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ),
               ]);
             })),
-        ]))),
+        ])))),
         if (currentIndex >= 0 && currentIndex < files.length) ColoredBox(
           color: GoogleLetterPalette.cream, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
