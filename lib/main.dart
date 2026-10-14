@@ -318,6 +318,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   String manifestTrackKey(String absolutePath) =>
+      absolutePath.startsWith('External/') || absolutePath.startsWith('Music/')
+          ? absolutePath :
       (absolutePath.contains('/Documents/Music/') ? 'Music/' : 'External/') +
       Uri.file(absolutePath).pathSegments.last;
 
@@ -627,9 +629,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           }
         } catch (_) {}
         for (final old in saved) {
-          final mapped = old.startsWith('External/')
-            ? (referenced[old] ?? '') : localFilePath(old);
-          if (mapped.isNotEmpty && await File(mapped).exists()) {
+          final external = old.startsWith('External/');
+          final mapped = external
+            ? (referenced[old] ?? old) : localFilePath(old);
+          // A temporary Files provider hydration failure must not silently
+          // drop bookmarked tracks from the library and the saved manifest.
+          if (external || await File(mapped).exists()) {
             migrated[old] = mapped;
             if (!files.contains(mapped)) files.add(mapped);
           }
@@ -674,8 +679,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           tracks.map((path) => migrated[path] ??
             (path.startsWith('External/') ? (referenced[path] ?? path) : localFilePath(path))).toList());
         for (final path in files) {
-          dateAdded.putIfAbsent(path, () =>
-            File(path).lastModifiedSync().millisecondsSinceEpoch);
+          dateAdded.putIfAbsent(path, () {
+            try { return File(path).lastModifiedSync().millisecondsSinceEpoch; }
+            on FileSystemException { return DateTime.now().millisecondsSinceEpoch; }
+          });
         }
         // Restore old 'GBA_1' imports when the original 'GBA' also exists.
         for (final path in files) {
@@ -817,6 +824,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         // File-provider URLs may be accessible through an open security scope
         // even when Dart's immediate exists() check races provider hydration.
         if (files.contains(path)) continue;
+        // Replace an unresolved bookmark instead of creating a ghost duplicate.
+        files.remove(manifestTrackKey(path));
         // Do not make a second audio copy; keep the Files provider's URL.
         files.add(path);
         final identity = manifestTrackKey(path);
@@ -1047,10 +1056,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   // Restore the original magnetic, finger-tracked player animation (431aa9e).
+  double _collapsedPlayerOffset() {
+    final h = MediaQuery.sizeOf(context).height;
+    final bottom = MediaQuery.paddingOf(context).bottom * 0.6;
+    return math.max(1.0, h - 73 - bottom);
+  }
+
   void dismissPlayer() {
     if (libraryHome || dismissingPlayer) return;
-    final height = MediaQuery.sizeOf(context).height;
-    setState(() { dismissingPlayer = true; draggingPlayer = false; playerDrag = height; });
+    final collapsed = _collapsedPlayerOffset();
+    setState(() { dismissingPlayer = true; draggingPlayer = false; playerDrag = collapsed; });
     Future.delayed(const Duration(milliseconds: 310), () {
       if (mounted && dismissingPlayer) setState(() {
         libraryHome = true; playerDrag = 0; dismissingPlayer = false;
@@ -1061,10 +1076,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   void showPlayer() {
     if (!libraryHome) return;
-    final height = MediaQuery.sizeOf(context).height;
+    final collapsed = _collapsedPlayerOffset();
     setState(() {
       libraryHome = false; dismissingPlayer = false;
-      playerDrag = height; draggingPlayer = true;
+      playerDrag = collapsed; draggingPlayer = true;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() { draggingPlayer = false; playerDrag = 0; });
@@ -1074,12 +1089,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   void startMiniSwipe() {
     if (!libraryHome) return;
     miniSwipeTravel = 0;
-    setState(() { libraryHome = false; playerDrag = MediaQuery.sizeOf(context).height; draggingPlayer = true; dismissingPlayer = false; });
+    setState(() { libraryHome = false; playerDrag = _collapsedPlayerOffset(); draggingPlayer = true; dismissingPlayer = false; });
   }
 
   void updateMiniSwipe(DragUpdateDetails details) {
     miniSwipeTravel += details.delta.dy;
-    setState(() => playerDrag = (MediaQuery.sizeOf(context).height + miniSwipeTravel).clamp(0.0, MediaQuery.sizeOf(context).height).toDouble());
+    final collapsed = _collapsedPlayerOffset();
+    setState(() => playerDrag = (collapsed + miniSwipeTravel).clamp(0.0, collapsed).toDouble());
   }
 
   void finishMiniSwipe(DragEndDetails details) {
@@ -1093,8 +1109,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void finishPlayerDrag(DragEndDetails details) {
-    final height = MediaQuery.sizeOf(context).height;
-    if (playerDrag > height * 0.12 || (details.primaryVelocity ?? 0) > 450) {
+    final collapsed = _collapsedPlayerOffset();
+    if (playerDrag > collapsed * 0.12 || (details.primaryVelocity ?? 0) > 450) {
       dismissPlayer();
     } else {
       setState(() { draggingPlayer = false; playerDrag = 0; });
@@ -1202,28 +1218,69 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       ])));
   }
 
+  Future<void> _renameTrack(String path) async {
+    final controller = TextEditingController(text: displayName(path));
+    final renamed = await showDialog<String>(context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Rename track'),
+        content: TextField(controller: controller, autofocus: true,
+          decoration: const InputDecoration(labelText: 'Track title')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, controller.text.trim()),
+            child: const Text('Save')),
+        ]));
+    controller.dispose();
+    if (renamed == null || renamed.trim().isEmpty) return;
+    await saveTrackMetadata(path, {...metadataFor(path), 'title': renamed});
+  }
+
   void trackMenu(String path) {
-    showModalBottomSheet<void>(context: context, builder: (sheet) => SafeArea(child:
-      Column(mainAxisSize: MainAxisSize.min, children: [
-        ListTile(leading: const Icon(Icons.edit_note_rounded), title: const Text('Edit metadata'),
-          onTap: () {
-            Navigator.pop(sheet);
-            showModalBottomSheet<void>(context: context, isScrollControlled: true,
-              builder: (sheet) => SafeArea(child: Padding(padding: const EdgeInsets.all(24),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  SizedBox(height: 280, child: Center(child: AspectRatio(aspectRatio: 1,
-                    child: ArtworkFlipCard(trackName: displayName(path),
-                      metadata: metadataFor(path),
-                      onSave: (data) => saveTrackMetadata(path, data))))),
-                  const Text('Tap artwork to add or search metadata.'),
-                ]))));
-          }),
-        ListTile(leading: const Icon(Icons.playlist_add_rounded), title: const Text('Add to playlist'),
-          onTap: () { Navigator.pop(sheet); addToPlaylist(path); }),
-        ListTile(leading: Icon(favorites.contains(path) ? Icons.favorite_rounded : Icons.favorite_border_rounded),
-          title: Text(favorites.contains(path) ? 'Remove from favorites' : 'Add to favorites'),
-          onTap: () { Navigator.pop(sheet); toggleFavorite(path); }),
-      ])));
+    showModalBottomSheet<void>(context: context,
+      isScrollControlled: true, showDragHandle: true,
+      backgroundColor: GoogleLetterPalette.cream,
+      builder: (sheet) => SafeArea(child: Padding(
+        padding: const EdgeInsets.fromLTRB(15, 15, 15, 22),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          _settingsSection('Track actions', [
+            _settingsOption(label: favorites.contains(path)
+                ? 'Remove from Favorites' : 'Add to Favorites',
+              icon: favorites.contains(path) ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+              accent: GoogleLetterPalette.red,
+              onTap: () { Navigator.pop(sheet); toggleFavorite(path); }),
+            _settingsOption(label: 'Add to Playlist',
+              icon: Icons.playlist_add_rounded,
+              accent: GoogleLetterPalette.yellow,
+              onTap: () { Navigator.pop(sheet); addToPlaylist(path); }),
+            _settingsOption(label: 'Get Info',
+              icon: Icons.info_rounded,
+              accent: GoogleLetterPalette.green,
+              onTap: () { Navigator.pop(sheet); showTrackDetails(path); }),
+            _settingsOption(label: 'Rename',
+              icon: Icons.edit_rounded,
+              accent: GoogleLetterPalette.blue,
+              onTap: () { Navigator.pop(sheet); _renameTrack(path); }),
+            _settingsOption(label: 'Edit Metadata',
+              icon: Icons.description_rounded,
+              accent: GoogleLetterPalette.red,
+              onTap: () {
+                Navigator.pop(sheet);
+                showModalBottomSheet<void>(context: context,
+                  isScrollControlled: true,
+                  backgroundColor: GoogleLetterPalette.cream,
+                  builder: (editor) => SafeArea(child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      SizedBox(height: 280, child: Center(child: AspectRatio(
+                        aspectRatio: 1, child: ArtworkFlipCard(
+                          trackName: displayName(path), metadata: metadataFor(path),
+                          onSave: (data) => saveTrackMetadata(path, data))))),
+                      const Text('Tap artwork to add or search metadata.'),
+                    ]))));
+              }),
+          ]),
+        ]))));
   }
 
   Future<void> moveQueuedTrack(int from, int to) async {
@@ -1311,8 +1368,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             const SizedBox(width: 48),
           ]),
           const Row(children: [
-            Expanded(child: Center(child: Text('Semitones'))),
-            Expanded(child: Center(child: Text('Cents'))),
+            if (!linkedPitchTempo) Expanded(child: Center(child: Text('Semitones'))),
+            if (!linkedPitchTempo) Expanded(child: Center(child: Text('Cents'))),
           ]),
           Expanded(child: Row(children: [
             Expanded(child: CupertinoPicker(
@@ -1514,7 +1571,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       context: context,
       isScrollControlled: true,
       backgroundColor: GoogleLetterPalette.cream,
-      enableDrag: true,
+      enableDrag: false, // EQ pan gestures must not dismiss the sheet.
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, refresh) {
@@ -1537,6 +1594,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
                       ],
                     )),
+                    IconButton(tooltip: 'Close equalizer',
+                      icon: const Icon(Icons.close_rounded, color: GoogleLetterPalette.ink),
+                      onPressed: () => Navigator.pop(sheetContext)),
                     Switch.adaptive(
                       value: eqEnabled,
                       activeColor: accent,
@@ -1546,12 +1606,21 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       },
                     ),
                   ]),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
+                  const Align(alignment: Alignment.centerLeft,
+                    child: Padding(padding: EdgeInsets.only(left: 6, bottom: 7),
+                      child: Text('EQ preset', style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w800,
+                        color: GoogleLetterPalette.creamText)))),
                   DropdownButtonFormField<String>(
                     key: ValueKey('eq-$eqPreset'),
                     initialValue: eqPreset == 'Custom' ? null : eqPreset,
                     isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'EQ preset'),
+                    decoration: InputDecoration(
+                      filled: true, fillColor: GoogleLetterPalette.creamDivider.withValues(alpha: 0.40),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none)),
                     hint: const Text('Custom (unsaved)'),
                     items: [
                       for (final name in eqPresets.keys)
@@ -1572,6 +1641,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   const SizedBox(height: 14),
                   Expanded(child: LayoutBuilder(builder: (_, bounds) =>
                     GestureDetector(behavior: HitTestBehavior.opaque,
+                      onPanDown: (details) {
+                        activeEqBand = ((details.localPosition.dx / bounds.maxWidth) * 10 - 0.5)
+                            .round().clamp(0, 9);
+                      },
                       onPanStart: (details) {
                         activeEqBand = ((details.localPosition.dx / bounds.maxWidth) * 10 - 0.5)
                             .round().clamp(0, 9);
@@ -1680,7 +1753,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               const SizedBox(width: 48),
             ]),
             const Row(children: [
-              Expanded(child: Center(child: Text('Tempo'))),
+              Expanded(child: Center(child: Text(linkedPitchTempo ? 'Tapespeed' : 'Tempo'))),
               Expanded(child: Center(child: Text('Semitones'))),
               Expanded(child: Center(child: Text('Cents'))),
               Expanded(child: Center(child: Text('Preamp'))),
@@ -1705,7 +1778,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   scheduleNativePitchTempoUpdate();
                 },
                 children: [for (var i = 50; i <= 200; i++) Center(child: Text('$i%'))])),
-              Expanded(child: CupertinoPicker(
+              if (!linkedPitchTempo) Expanded(child: CupertinoPicker(
                 scrollController: FixedExtentScrollController(
                   initialItem: pitchSemitones.clamp(-12, 12) + 12),
                 itemExtent: 40,
@@ -1717,7 +1790,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 },
                 children: [for (var i = -12; i <= 12; i++)
                   Center(child: Text('${i >= 0 ? '+' : ''}$i'))])),
-              Expanded(child: CupertinoPicker(
+              if (!linkedPitchTempo) Expanded(child: CupertinoPicker(
                 scrollController: FixedExtentScrollController(
                   initialItem: pitchCents.round().clamp(-99, 99) + 99),
                 itemExtent: 40,
@@ -1746,44 +1819,75 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           ]))))));
   }
 
+  Widget _audioControlRow({required IconData icon, required Color accent,
+      required String name, required String reading, required Widget control}) {
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 15),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+        SizedBox(width: 58, child: Icon(icon, color: GoogleLetterPalette.ink, size: 39)),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text(name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900,
+              color: GoogleLetterPalette.ink)),
+            const Spacer(),
+            Text(reading, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600,
+              color: GoogleLetterPalette.creamText)),
+          ]),
+          const SizedBox(height: 5),
+          SliderTheme(data: Theme.of(context).sliderTheme.copyWith(
+            trackHeight: 7,
+            activeTrackColor: accent,
+            thumbColor: accent,
+            inactiveTrackColor: GoogleLetterPalette.creamDivider,
+            overlayColor: accent.withValues(alpha: 0.18),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12)),
+            child: control),
+        ])),
+      ]));
+  }
+
   void showAudioSettings() {
     showModalBottomSheet<void>(context: context,
       isScrollControlled: true,
       backgroundColor: GoogleLetterPalette.cream,
+      showDragHandle: true,
       builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) =>
-        SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(22, 16, 22, 24),
-          child: Column(mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center, children: [
-            const Text('Tempo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
-            Text('${(playbackSpeed * 100).round()}%'),
-            dragOnlySlider(value: playbackSpeed < 1
-                ? (playbackSpeed - 1) * 2 : playbackSpeed - 1,
-              min: -1, max: 1, divisions: 200,
-              onReset: () {
-                refresh(() {
-                  playbackSpeed = 1;
-                  if (linkedPitchTempo) { pitchSemitones = 0; pitchCents = 0; }
-                });
-                setState(() {});
-                updateNativePitchTempo();
-              },
-              onChanged: (value) {
-                refresh(() {
-                  playbackSpeed = value < 0 ? 1 + value / 2 : 1 + value;
-                  if (linkedPitchTempo) {
-                    final cents = (1200 * math.log(playbackSpeed) / math.ln2)
-                        .round().clamp(-1200, 1200);
-                    pitchSemitones = (cents / 100).truncate();
-                    pitchCents = (cents - pitchSemitones * 100).toDouble();
-                  }
-                });
-                setState(() {});
-                scheduleNativePitchTempoUpdate();
-              }, onChangeEnd: (_) => updateNativePitchTempo()),
+        SafeArea(child: SizedBox(height: MediaQuery.sizeOf(sheet).height * 0.77,
+          child: Padding(padding: const EdgeInsets.fromLTRB(24, 8, 24, 22),
+          child: Column(children: [
+            const SizedBox(height: 24),
+            _audioControlRow(icon: Icons.speed_rounded,
+              accent: GoogleLetterPalette.yellow,
+              name: linkedPitchTempo ? 'Tapespeed' : 'Tempo',
+              reading: '${(playbackSpeed * 100).round()}%',
+              control: dragOnlySlider(
+                value: playbackSpeed < 1 ? (playbackSpeed - 1) * 2 : playbackSpeed - 1,
+                min: -1, max: 1, divisions: 200,
+                onReset: () {
+                  refresh(() {
+                    playbackSpeed = 1;
+                    if (linkedPitchTempo) { pitchSemitones = 0; pitchCents = 0; }
+                  });
+                  setState(() {});
+                  updateNativePitchTempo();
+                },
+                onChanged: (value) {
+                  refresh(() {
+                    playbackSpeed = value < 0 ? 1 + value / 2 : 1 + value;
+                    if (linkedPitchTempo) {
+                      final cents = (1200 * math.log(playbackSpeed) / math.ln2)
+                          .round().clamp(-1200, 1200);
+                      pitchSemitones = (cents / 100).truncate();
+                      pitchCents = (cents - pitchSemitones * 100).toDouble();
+                    }
+                  });
+                  setState(() {});
+                  scheduleNativePitchTempoUpdate();
+                }, onChangeEnd: (_) => updateNativePitchTempo())),
             IconButton(
               tooltip: linkedPitchTempo ? 'Unlink pitch and tempo' : 'Link pitch and tempo',
               icon: Icon(linkedPitchTempo ? Icons.link_rounded : Icons.link_off_rounded,
-                size: 29, color: GoogleLetterPalette.yellow),
+                size: 36, color: GoogleLetterPalette.yellow),
               onPressed: () {
                 HapticFeedback.selectionClick();
                 refresh(() {
@@ -1798,53 +1902,57 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 setState(() {});
                 updateNativePitchTempo();
               }),
-            if (!linkedPitchTempo) ...[
-            const Text('Pitch', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
-            Text('${(pitchSemitones + pitchCents / 100).toStringAsFixed(2)} st'),
-            Semantics(
-              label: 'Pitch slider. Drag to change pitch; double tap to reset. Use Fine tune for semitones and cents.',
-              child: dragOnlySlider(
-                value: (pitchSemitones + pitchCents / 100).clamp(-12.0, 12.0).toDouble(),
-                min: -12, max: 12,
+            if (!linkedPitchTempo)
+              _audioControlRow(icon: Icons.music_note_rounded,
+                accent: GoogleLetterPalette.red,
+                name: 'Pitch',
+                reading: (pitchSemitones + pitchCents / 100).toStringAsFixed(2),
+                control: dragOnlySlider(
+                  value: (pitchSemitones + pitchCents / 100).clamp(-12.0, 12.0).toDouble(),
+                  min: -12, max: 12,
+                  onReset: () {
+                    refresh(() { pitchSemitones = 0; pitchCents = 0; });
+                    setState(() {});
+                    updateNativePitchTempo();
+                  },
+                  onChanged: (value) {
+                    final cents = (value * 100).round().clamp(-1200, 1200);
+                    refresh(() {
+                      pitchSemitones = (cents / 100).truncate();
+                      pitchCents = (cents - pitchSemitones * 100).toDouble();
+                    });
+                    setState(() {});
+                    scheduleNativePitchTempoUpdate();
+                  }, onChangeEnd: (_) => updateNativePitchTempo())),
+            _audioControlRow(icon: Icons.volume_up_rounded,
+              accent: GoogleLetterPalette.green,
+              name: 'Preamp',
+              reading: '${preampDb.toStringAsFixed(1)} dB',
+              control: dragOnlySlider(value: preampDb, min: -12, max: 12, divisions: 48,
                 onReset: () {
-                  refresh(() { pitchSemitones = 0; pitchCents = 0; });
+                  refresh(() => preampDb = 0);
                   setState(() {});
-                  updateNativePitchTempo();
+                  applyNativeEQ();
                 },
                 onChanged: (value) {
-                  final cents = (value * 100).round().clamp(-1200, 1200);
-                  refresh(() {
-                    pitchSemitones = (cents / 100).truncate();
-                    pitchCents = (cents - pitchSemitones * 100).toDouble();
-                  });
+                  refresh(() => preampDb = value);
                   setState(() {});
-                  scheduleNativePitchTempoUpdate();
-                }, onChangeEnd: (_) => updateNativePitchTempo())),
-            ],
-            const SizedBox(height: 8),
-            const Text('Preamp', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
-            Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
-            dragOnlySlider(value: preampDb, min: -12, max: 12, divisions: 48,
-              onReset: () {
-                refresh(() => preampDb = 0);
-                setState(() {});
-                applyNativeEQ();
-              },
-              onChanged: (value) {
-                refresh(() => preampDb = value);
-                setState(() {});
-                scheduleEQUpdate();
-              }, onChangeEnd: (_) => applyNativeEQ()),
-            const SizedBox(height: 22),
+                  scheduleEQUpdate();
+                }, onChangeEnd: (_) => applyNativeEQ())),
+            const Spacer(),
             IconButton(tooltip: 'Open precision tuning wheels',
-              icon: DecoratedBox(decoration: BoxDecoration(color: GoogleLetterPalette.creamDivider, borderRadius: BorderRadius.circular(17)), child: const Padding(padding: EdgeInsets.all(13), child: _TuningForkIcon())),
+              iconSize: 88,
+              style: IconButton.styleFrom(backgroundColor: GoogleLetterPalette.creamDivider,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
+              icon: const Padding(padding: EdgeInsets.all(20), child: _TuningForkIcon()),
               onPressed: () => showThreePrecisionWheels(refresh)),
+            const SizedBox(height: 12),
             TextButton(onPressed: () async {
               refresh(() { pitchSemitones = 0; pitchCents = 0; playbackSpeed = 1; });
               setState(() {});
               await updateNativePitchTempo();
             }, child: const Text('Reset pitch and tempo')),
-          ])))));
+          ]))))));
   }
 
   Future<void> loadMissingDurations() async {
@@ -2175,81 +2283,114 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     if (mounted) setState(() {});
   }
 
+  Widget _settingsOption({required String label, required IconData icon,
+      required Color accent, required VoidCallback onTap, String? detail}) =>
+    ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: DecoratedBox(decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12)),
+        child: SizedBox.square(dimension: 42,
+          child: Icon(icon, color: accent, size: 25))),
+      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800,
+        fontSize: 15, color: GoogleLetterPalette.ink)),
+      subtitle: detail == null ? null : Text(detail,
+        style: const TextStyle(fontSize: 12, color: GoogleLetterPalette.creamText)),
+      trailing: const Icon(Icons.chevron_right_rounded,
+        size: 20, color: GoogleLetterPalette.creamText),
+      onTap: onTap);
+
+  Widget _settingsSection(String heading, List<Widget> items) =>
+    Padding(padding: const EdgeInsets.only(bottom: 19), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(8, 0, 8, 9),
+          child: Text(heading, style: const TextStyle(fontSize: 13,
+            fontWeight: FontWeight.w900, color: GoogleLetterPalette.creamText))),
+        DecoratedBox(decoration: BoxDecoration(
+          color: const Color(0xFFFFFAEF), borderRadius: BorderRadius.circular(18)),
+          child: Column(children: [for (var i = 0; i < items.length; i++) ...[
+            if (i != 0) const Divider(indent: 64, endIndent: 12,
+              height: 1, thickness: 0.7, color: GoogleLetterPalette.creamDivider),
+            items[i],
+          ]])),
+      ]));
+
   void showLibraryOptionsPane() {
     showGeneralDialog<void>(context: context,
       barrierDismissible: true,
-      barrierLabel: 'Close library options',
-      barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
-        alignment: Alignment.centerRight,
-        child: Material(color: GoogleLetterPalette.red,
-          child: SizedBox(width: MediaQuery.sizeOf(dialogContext).width * 0.84,
-            height: double.infinity,
-            child: SafeArea(left: false, child: ListView(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-              children: [
-                Row(children: [
-                  const Expanded(child: Text('Library options',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800))),
-                  IconButton(tooltip: 'Close options', icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.pop(dialogContext)),
-                ]),
-                const Divider(),
-                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Text('IMPORT MUSIC', style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
-                ListTile(leading: const Icon(Icons.link_rounded),
-                  title: const Text('Link originals from Files'),
-                  subtitle: const Text('No duplicate audio copies'),
-                  onTap: () { Navigator.pop(dialogContext); importInPlace(); }),
-                ListTile(leading: const Icon(Icons.file_copy_rounded),
-                  title: const Text('Copy music into app'),
-                  onTap: () { Navigator.pop(dialogContext); import(); }),
-                const Divider(),
-                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Text('LIBRARY INDEX', style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
-                ListTile(leading: const Icon(Icons.save_alt_rounded),
-                  title: const Text('Export library index'),
-                  onTap: () { Navigator.pop(dialogContext); exportLibraryIndex(); }),
-                ListTile(leading: const Icon(Icons.folder_open_rounded),
-                  title: const Text('Restore library index'),
-                  onTap: () { Navigator.pop(dialogContext); restoreLibraryIndex(); }),
-                const Divider(),
-                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Text('BACKUP & RESTORE', style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
-                ListTile(leading: const Icon(Icons.backup_rounded),
-                  title: const Text('Back up library'),
-                  onTap: () { Navigator.pop(dialogContext); exportLibraryBackup(); }),
-                ListTile(leading: const Icon(Icons.restore_rounded),
-                  title: const Text('Restore backup'),
-                  onTap: () { Navigator.pop(dialogContext); restoreLibraryBackup(); }),
-                const Divider(),
-                const Padding(padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Text('LIBRARY MAINTENANCE', style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.5))),
-                ListTile(leading: const Icon(Icons.playlist_remove_rounded),
-                  title: const Text('Clear remembered song list'),
-                  subtitle: const Text('Does not delete original music'),
-                  onTap: () { Navigator.pop(dialogContext); clearLibraryList(); }),
-                const Divider(),
-                ListTile(title: Text('AuraLocal Build $auraBuildNumber')),
-              ])))),
-      ),
-      transitionBuilder: (_, animation, __, child) => Stack(children: [
-        Positioned.fill(child: IgnorePointer(child: AnimatedBuilder(
-          animation: animation,
-          builder: (_, __) => BackdropFilter(
-            filter: ui.ImageFilter.blur(
-              sigmaX: 4.0 * animation.value, sigmaY: 4.0 * animation.value),
-            child: const SizedBox.expand())))),
-        SlideTransition(
-          position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+      barrierLabel: 'Close library settings',
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 290),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) =>
+        SafeArea(child: Align(alignment: Alignment.centerRight,
+          child: Padding(padding: const EdgeInsets.all(13),
+            child: Material(color: Colors.transparent,
+              child: Container(
+                width: math.min(385, MediaQuery.sizeOf(dialogContext).width - 26),
+                height: MediaQuery.sizeOf(dialogContext).height * 0.82,
+                decoration: BoxDecoration(color: GoogleLetterPalette.cream,
+                  borderRadius: BorderRadius.circular(29)),
+                child: ClipRRect(borderRadius: BorderRadius.circular(29),
+                  child: Column(children: [
+                    Padding(padding: const EdgeInsets.fromLTRB(22, 18, 11, 9),
+                      child: Row(children: [
+                        const Expanded(child: Text('Library settings',
+                          style: TextStyle(color: GoogleLetterPalette.ink,
+                            fontSize: 25, fontWeight: FontWeight.w900))),
+                        IconButton(icon: const Icon(Icons.close_rounded),
+                          tooltip: 'Close library settings',
+                          onPressed: () => Navigator.pop(dialogContext)),
+                      ])),
+                    Expanded(child: ListView(
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
+                      children: [
+                        _settingsSection('Music import', [
+                          _settingsOption(label: 'Link music from Files',
+                            detail: 'No duplicate audio copies',
+                            icon: Icons.link_rounded,
+                            accent: GoogleLetterPalette.yellow,
+                            onTap: () { Navigator.pop(dialogContext); importInPlace(); }),
+                          _settingsOption(label: 'Copy music into app',
+                            icon: Icons.file_copy_rounded,
+                            accent: GoogleLetterPalette.green,
+                            onTap: () { Navigator.pop(dialogContext); import(); }),
+                        ]),
+                        _settingsSection('Library index', [
+                          _settingsOption(label: 'Export library index',
+                            icon: Icons.ios_share_rounded,
+                            accent: GoogleLetterPalette.yellow,
+                            onTap: () { Navigator.pop(dialogContext); exportLibraryIndex(); }),
+                          _settingsOption(label: 'Restore library index',
+                            icon: Icons.folder_open_rounded,
+                            accent: GoogleLetterPalette.green,
+                            onTap: () { Navigator.pop(dialogContext); restoreLibraryIndex(); }),
+                        ]),
+                        _settingsSection('Backup and restore', [
+                          _settingsOption(label: 'Back up entire library',
+                            icon: Icons.cloud_upload_rounded,
+                            accent: GoogleLetterPalette.yellow,
+                            onTap: () { Navigator.pop(dialogContext); exportLibraryBackup(); }),
+                          _settingsOption(label: 'Restore full backup',
+                            icon: Icons.restore_rounded,
+                            accent: GoogleLetterPalette.green,
+                            onTap: () { Navigator.pop(dialogContext); restoreLibraryBackup(); }),
+                        ]),
+                        _settingsSection('Maintenance', [
+                          _settingsOption(label: 'Clear remembered song list',
+                            detail: 'Does not delete original audio files',
+                            icon: Icons.playlist_remove_rounded,
+                            accent: GoogleLetterPalette.red,
+                            onTap: () { Navigator.pop(dialogContext); clearLibraryList(); }),
+                        ]),
+                        Center(child: Text('AuraLocal Build $auraBuildNumber',
+                          style: const TextStyle(fontSize: 12,
+                            color: GoogleLetterPalette.creamText))),
+                      ])),
+                  ]))))))),
+      transitionBuilder: (_, animation, __, child) =>
+        FadeTransition(opacity: animation, child: SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0.20, 0), end: Offset.zero)
             .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-          child: child),
-      ]));
+          child: child)));
   }
 
   Widget buildLibrary() {
@@ -2505,13 +2646,20 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     );
   }
 
-  Widget buildPlayer() {
+  Widget buildPlayer({double? expansion}) {
+    final stage = expansion ?? (1.0 - playerDrag / _collapsedPlayerOffset())
+        .clamp(0.0, 1.0).toDouble();
+    // The mini-player itself expands: its mustard surface gradually becomes
+    // the cream player rather than a separate cream sheet arriving from below.
+    final surface = Color.lerp(GoogleLetterPalette.blue,
+        GoogleLetterPalette.cream, Curves.easeInOut.transform(stage))!;
     final effectivePosition = draggingSeek && scrubPosition != null ? scrubPosition! : positionSeconds;
     final maximum = math.max(durationSeconds, 0.001);
     return Scaffold(
-      backgroundColor: GoogleLetterPalette.cream,
+      backgroundColor: surface,
       appBar: AppBar(
-        backgroundColor: GoogleLetterPalette.cream,
+        backgroundColor: surface,
+        toolbarOpacity: stage,
         foregroundColor: GoogleLetterPalette.ink,
         leading: IconButton(tooltip: 'Minimize player', icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onPressed: showLibrary),
@@ -2533,7 +2681,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             ], icon: const Icon(Icons.more_vert_rounded)),
         ],
       ),
-      body: SafeArea(child: LayoutBuilder(builder: (context, viewport) =>
+      body: Opacity(opacity: stage, child: SafeArea(
+        child: LayoutBuilder(builder: (context, viewport) =>
         Stack(children: [ListView(
           key: const PageStorageKey<String>('now-playing-content'),
           primary: false,
@@ -2541,7 +2690,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           children: [
           SizedBox(height: math.max(8.0, viewport.maxHeight * 0.015)),
           SizedBox(height: math.min(viewport.maxHeight * 0.46, 410),
-            child: Center(child: LayoutBuilder(builder: (_, bounds) {
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
+              onVerticalDragUpdate: (details) => setState(() => playerDrag =
+                (playerDrag + details.delta.dy).clamp(0.0, _collapsedPlayerOffset()).toDouble()),
+              onVerticalDragEnd: finishPlayerDrag,
+              onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
+              child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
@@ -2552,7 +2708,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               key: ValueKey(path), trackName: displayName(path),
               metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
               onSave: (data) => saveTrackMetadata(path, data)));
-          }))),
+          })))),
           const SizedBox(height: 14),
           Row(children: [
             Expanded(child: SizedBox(height: 43, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)))),
@@ -2652,7 +2808,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           const SizedBox(height: 22),
         ],
       ),
-      ]))),
+      ])))),
     );
   }
 
@@ -2662,8 +2818,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
     final height = math.max(1.0, MediaQuery.sizeOf(context).height);
-    final reveal = (1 - playerDrag.clamp(0.0, height) / height)
-        .clamp(0.0, 1.0).toDouble();
+    final reveal = (1 - playerDrag.clamp(0.0, _collapsedPlayerOffset()) /
+      _collapsedPlayerOffset()).clamp(0.0, 1.0).toDouble();
     return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [
       buildLibrary(),
       if (!libraryHome)
@@ -2677,19 +2833,42 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             child: ColoredBox(color: Color.fromRGBO(0, 0, 0, strength * 0.08))),
         ))),
       if (!libraryHome)
-        AnimatedContainer(
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset())),
           duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
           curve: Curves.easeOutCubic,
-          transform: Matrix4.translationValues(0, playerDrag.clamp(0.0, height), 0),
-          child: ClipRRect(borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(20)), child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
-            onVerticalDragUpdate: (details) => setState(() => playerDrag = (playerDrag + details.delta.dy).clamp(0.0, height).toDouble()),
-            onVerticalDragEnd: finishPlayerDrag,
-            onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
-            child: buildPlayer(),
-          )),
+          builder: (context, actualOffset, _) {
+            final progress = (1 - actualOffset / _collapsedPlayerOffset())
+                .clamp(0.0, 1.0).toDouble();
+            return Transform.translate(offset: Offset(0, actualOffset),
+              child: ClipRRect(borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20)), child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
+                onVerticalDragUpdate: (details) => setState(() => playerDrag =
+                  (playerDrag + details.delta.dy).clamp(0.0, _collapsedPlayerOffset()).toDouble()),
+                onVerticalDragEnd: finishPlayerDrag,
+                onVerticalDragCancel: () => setState(() { draggingPlayer = false; playerDrag = 0; }),
+                child: Stack(children: [
+                  buildPlayer(expansion: progress),
+                  if (progress < 0.5)
+                    Positioned(top: 0, left: 0, right: 0,
+                      child: Opacity(opacity: (1 - progress * 2).clamp(0.0, 1.0).toDouble(),
+                        child: SizedBox(height: 74, child: ListTile(
+                          leading: ValueListenableBuilder<List<double>>(
+                            valueListenable: waveformLevels,
+                            builder: (_, levels, __) => SizedBox(width: 26, height: 28,
+                              child: CustomPaint(painter: MiniMusicBarsPainter(
+                                levels: levels, active: isPlaying)))),
+                          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w900,
+                              color: GoogleLetterPalette.ink)),
+                          trailing: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                            color: GoogleLetterPalette.ink),
+                        )))),
+                ]),
+              )));
+          },
         ),
     ]));
   }

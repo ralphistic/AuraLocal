@@ -29,10 +29,11 @@ require("DropdownButton<double>" not in dart and "Playing from Your Library" not
 require("LiveWaveformPainter" in dart and "installTap(onBus:" in graph and
         "waveform()" in graph,
         "Live waveform samples come from native audio output")
-require("return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [" in dart and "AnimatedContainer(" in dart and
-        "transform: Matrix4.translationValues(0, playerDrag.clamp(0.0, height), 0)" in dart and
-        "if (!libraryHome)" in dart,
-        "Player follows drag over visible library and settles without leaving a blank overlay")
+require("return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [" in dart and
+        "TweenAnimationBuilder<double>(" in dart and
+        "Transform.translate(offset: Offset(0, actualOffset)" in dart and
+        "buildPlayer(expansion: progress)" in dart and "if (!libraryHome)" in dart,
+        "The actual mini-player surface expands and collapses with finger-tracked motion")
 require("source.scheduleSegment(file" in graph and "source.play()" in graph and
         "engine.connect(equalizer, to: timePitch" in graph,
         "FLAC runs through the existing Apple TimePitch graph")
@@ -54,8 +55,9 @@ require("Goertzel" in graph and "analysisQueue" in graph and "spectrumTicker" in
         "Duration(milliseconds: 16)" in dart,
         "Live equalizer-style frequency analyzer with display-vsync smoothing")
 require(dart.count("Slider(value: pitchCents") == 0 and
-        "Pitch slider. Drag to change pitch; double tap to reset" in dart,
-        "Combined pitch slider supports drag and double-tap reset")
+        "_audioControlRow(icon: Icons.music_note_rounded" in dart and
+        "onDoubleTap: onReset" in dart,
+        "Pitch slider supports drag and double-tap reset")
 
 require("timePitch.overlap = 8" in graph and
         "timePitch.rate = tempo" in graph and "timePitch.pitch = cents + tapeCents" in graph and
@@ -77,8 +79,9 @@ require("Widget dragOnlySlider(" in dart and "onHorizontalDragUpdate" in dart an
         "onDoubleTap: onReset" in dart and "showThreePrecisionWheels(refresh)" in dart,
         "Pitch slider supports drag-only adjustments, double-tap reset and precision wheel")
 require("startMiniSwipe()" in dart and "finishMiniSwipe" in dart and
-        "child: Stack(children: [" in dart and "AnimatedContainer(" in dart and "if (!libraryHome)" in dart,
-        "Swipe-up opens a bounded player; minimize cannot strand a grey overlay")
+        "child: Stack(children: [" in dart and "_collapsedPlayerOffset()" in dart and
+        "TweenAnimationBuilder<double>" in dart and "if (!libraryHome)" in dart,
+        "Swipe-up opens the same yellow player and returns to its mini-player position")
 require("curve.quadraticBezierTo" in dart and "canvas.drawPath(curve, paint)" in dart,
         "Live EQ is rendered as a single responsive frequency contour")
 
@@ -111,10 +114,29 @@ require("seekSeconds(-10)" not in dart and "seekSeconds(10)" not in dart,
 require("const _TuningForkIcon()" in dart and
         "class _TuningForkPainter extends CustomPainter" in dart,
         "Precision control displays a true tuning fork shape")
-require("if (!linkedPitchTempo) ...[" in dart and
-        "const Text('Pitch'" in dart,
-        "Linked pitch/tempo collapses the separate pitch slider")
-require("Text('Cents')" in dart and "Text('Semitones')" in dart,
-        "Precision tuning offers four independent tempo semitone cent and preamp wheels")
+require("if (!linkedPitchTempo)" in dart and
+        "name: linkedPitchTempo ? 'Tapespeed' : 'Tempo'" in dart,
+        "Linked pitch/tempo collapses Pitch and renames the remaining slider Tapespeed")
+require("Text('Cents')" in dart and "Text('Semitones')" in dart and
+        "if (!linkedPitchTempo) Expanded(child: Center(child: Text('Cents')))" in dart and
+        "Text(linkedPitchTempo ? 'Tapespeed' : 'Tempo')" in dart,
+        "Precision tuning shows four wheels unlinked or Tapespeed and Preamp linked")
 require("child: Text(displayName(files[index]), maxLines: 1" in dart,
         "Every track-list song title remains on exactly one line")
+
+require("enableDrag: false, // EQ pan gestures" in dart and
+        "onPanDown: (details)" in dart and
+        "icon: const Icon(Icons.close_rounded, color: GoogleLetterPalette.ink)" in dart,
+        "EQ sheet cannot steal vertical band drags and has an explicit close button")
+require("child: Text('EQ preset'" in dart and
+        "fillColor: GoogleLetterPalette.creamDivider.withValues(alpha: 0.40)" in dart,
+        "EQ preset field has a separate label and a neutral high-contrast background")
+require("external || await File(mapped).exists()" in dart and
+        "files.remove(manifestTrackKey(path))" in dart,
+        "Files bookmarks remain listed through temporary provider unavailability")
+require("_settingsSection('Music import'" in dart and
+        "BorderRadius.circular(29)" in dart,
+        "Library options open in a rounded settings window retaining import/backup actions")
+require("onVerticalDragEnd: finishPlayerDrag" in dart and
+        "Color.lerp(GoogleLetterPalette.blue" in dart,
+        "Album art supports down-swipe and expanding player morphs mustard to cream")
