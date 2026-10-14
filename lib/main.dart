@@ -138,11 +138,6 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final songDSP = <String, List<double>>{};
   bool globalDSP = false;
   bool linkedPitchTempo = false;
-  bool holdingFastForward = false;
-  bool holdForwardStarting = false;
-  double? holdOriginalTempo;
-  int holdRequestGeneration = 0;
-  bool linkedDragging = false;
   final searchController = TextEditingController();
   int dspRequestGeneration = 0;
   bool isPlaying = false;
@@ -200,7 +195,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       final next = List<double>.generate(waveformTarget.length, (i) {
         final target = isPlaying ? waveformTarget[i] : 0.0;
         final before = previous[i];
-        return before + (target - before) * (target > before ? 0.84 : 0.56);
+        return before + (target - before) * (target > before ? 0.55 : 0.31);
       });
       waveformLevels.value = next;
     });
@@ -211,6 +206,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   @override
   void dispose() {
     pollTimer?.cancel();
+    transportHoldTimer?.cancel();
     dspWheelDebounce?.cancel();
     eqDebounce?.cancel();
     spectrumTicker?.dispose();
@@ -363,13 +359,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     .toList()..sort(compareTracks);
 
   Future<void> syncQueue() async {
-    final ordered = orderedTrackIndices().map((i) => files[i]).toList();
-    // Preserve the active audio source even when a search/playlist hides it.
-    if (currentIndex >= 0 && currentIndex < files.length &&
-        !ordered.contains(files[currentIndex])) ordered.add(files[currentIndex]);
-    queuedPaths = ordered;
+    // A visual search, playlist, or favorites filter must never rewrite the
+    // playback library. Keep the transport queue bound to all imported tracks.
+    // This also prevents temporary empty search views from emptying playback.
+    final ordered = List<int>.generate(files.length, (i) => i);
+    ordered.sort(compareTracks);
+    final paths = ordered.map((i) => files[i]).toList();
+    queuedPaths = paths;
     await nativeDsp.invokeMethod('setQueue', {
-      'paths': ordered, 'shuffle': shuffle, 'repeat': repeat,
+      'paths': paths, 'shuffle': shuffle, 'repeat': repeat,
     });
   }
 
@@ -911,40 +909,28 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> seekSeconds(int seconds) async => seekTo(positionSeconds + seconds);
 
-  Future<void> startFastForward() async {
-    if (currentIndex < 0 || holdingFastForward || holdForwardStarting) return;
-    holdForwardStarting = true;
-    final token = ++holdRequestGeneration;
-    holdOriginalTempo = playbackSpeed;
-    try {
-      await nativeDsp.invokeMethod('setTemporaryRate',
-          {'rate': (playbackSpeed * 1.5).clamp(0.5, 2.0).toDouble()});
-      if (token == holdRequestGeneration) {
-        holdingFastForward = true;
-      } else {
-        // The finger was already lifted while the native request was pending.
-        await nativeDsp.invokeMethod('setTemporaryRate',
-            {'rate': holdOriginalTempo ?? playbackSpeed});
+  Timer? transportHoldTimer;
+  int transportHoldTicks = 0;
+
+  void startTransportHold(int direction) {
+    transportHoldTimer?.cancel();
+    transportHoldTicks = 0;
+    if (currentIndex < 0 || durationSeconds <= 0) return;
+    transportHoldTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (!mounted || currentIndex < 0 || durationSeconds <= 0) {
+        stopTransportHold();
+        return;
       }
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => error = 'Fast forward: ${e.message}');
-    } finally {
-      holdForwardStarting = false;
-    }
+      transportHoldTicks++;
+      final step = transportHoldTicks < 5 ? 2 : transportHoldTicks < 15 ? 4 : 8;
+      seekSeconds(direction * step);
+    });
   }
 
-  Future<void> stopFastForward() async {
-    if (!holdingFastForward && !holdForwardStarting) return;
-    holdRequestGeneration++;
-    holdingFastForward = false;
-    holdForwardStarting = false;
-    try {
-      await nativeDsp.invokeMethod('setTemporaryRate',
-          {'rate': holdOriginalTempo ?? playbackSpeed});
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => error = 'Fast forward: ${e.message}');
-    }
-    holdOriginalTempo = null;
+  void stopTransportHold() {
+    transportHoldTimer?.cancel();
+    transportHoldTimer = null;
+    transportHoldTicks = 0;
   }
 
   Future<void> toggleWaveform() async {
@@ -1221,7 +1207,15 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             scrollController: FixedExtentScrollController(initialItem: (playbackSpeed * 100).round() - 50),
             itemExtent: 44,
             onSelectedItemChanged: (i) {
-              refresh(() => playbackSpeed = (i + 50) / 100);
+              refresh(() {
+                playbackSpeed = (i + 50) / 100;
+                if (linkedPitchTempo) {
+                  final cents = (1200 * math.log(playbackSpeed) / math.ln2)
+                      .round().clamp(-1200, 1200);
+                  pitchSemitones = (cents / 100).truncate();
+                  pitchCents = (cents - pitchSemitones * 100).toDouble();
+                }
+              });
               setState(() {});
               scheduleNativePitchTempoUpdate();
             },
@@ -1357,6 +1351,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     scheduleEQUpdate();
   }
 
+  void updateCurve(Offset point, Size size, StateSetter refresh) {
+    if (size.width <= 0 || size.height <= 0) return;
+    final index = (point.dx / size.width * 10).floor().clamp(0, 9);
+    final gain = (12 - point.dy / size.height * 24).clamp(-12.0, 12.0);
+    setManualEQBand(index, gain.toDouble(), refresh);
+  }
+
   void showEqualizer() {
     showModalBottomSheet<void>(
       context: context,
@@ -1414,27 +1415,27 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                       child: TextButton.icon(onPressed: () => deleteCustomEQPreset(eqPreset, refresh),
                         icon: const Icon(Icons.delete_outline_rounded), label: const Text('Delete preset'))),
                   const SizedBox(height: 6),
-                  Expanded(
-                    child: Stack(children: [
-                      Positioned.fill(child: CustomPaint(
-                        painter: const EqGridPainter(accent: accent),
-                      )),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var i = 0; i < 10; i++)
-                            Expanded(child: EqBandControl(
-                              key: ValueKey('eq-band-$i'),
-                              label: eqFrequencies[i],
-                              gain: eqGains[i],
-                              accent: accent,
-                              onChanged: (value) => setManualEQBand(i, value, refresh),
-                              onChangeEnd: () => applyNativeEQ(),
-                            )),
-                        ],
-                      ),
-                    ]),
+                  SizedBox(height: 86, child: ValueListenableBuilder<List<double>>(
+                    valueListenable: waveformLevels,
+                    builder: (_, levels, __) => CustomPaint(
+                      size: const Size(double.infinity, 86),
+                      painter: LiveWaveformPainter(levels, isPlaying: isPlaying)))),
+                  const Text('Live frequency spectrum (bass to treble)',
+                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 10),
+                  Expanded(child: LayoutBuilder(builder: (_, bounds) =>
+                    GestureDetector(behavior: HitTestBehavior.opaque,
+                      onPanDown: (details) => updateCurve(details.localPosition, bounds.biggest, refresh),
+                      onPanUpdate: (details) => updateCurve(details.localPosition, bounds.biggest, refresh),
+                      onPanEnd: (_) => applyNativeEQ(),
+                      child: CustomPaint(size: bounds.biggest,
+                        painter: EditableEqCurvePainter(gains: List.of(eqGains), accent: accent)))),
                   ),
+                  const SizedBox(height: 7),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [for (final hz in eqFrequencies)
+                      Expanded(child: Text(hz, textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 9, color: Colors.white70)))]),
                   const SizedBox(height: 14),
                   Row(children: [
                     Expanded(
@@ -1487,7 +1488,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 14),
             if (linkedPitchTempo) ...[
-              Text('Tempo ${(playbackSpeed * 100).round()}%  -  Pitch ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones st / ${pitchCents.toStringAsFixed(0)} cents'),
+              TextButton(onPressed: () => showTempoWheel(refresh),
+                child: Text('Tempo ${(playbackSpeed * 100).round()}%  -  Pitch ${pitchSemitones >= 0 ? '+' : ''}$pitchSemitones st / ${pitchCents.toStringAsFixed(0)} cents')),
               Slider(value: playbackSpeed.clamp(0.5, 2.0), min: 0.5, max: 2.0, divisions: 150,
                 onChanged: (value) {
                   refresh(() {
@@ -1870,11 +1872,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     final details = <String, String>{
       'Filename': originalNames[path] ?? path.split('/').last,
       'Format': path.split('.').last.toUpperCase(),
-      ...?probe?.map((k, v) => MapEntry(k.toString(), v.toString())),
+      for (final entry in (probe ?? const <dynamic, dynamic>{}).entries)
+        if (entry.value != null && entry.value.toString().trim().isNotEmpty &&
+            !['unknown', 'null', 'n/a', 'none', 'unavailable']
+                .contains(entry.value.toString().trim().toLowerCase()))
+          entry.key.toString(): entry.value.toString(),
       'Duration': clock(trackDurations[path] ??
           (path == (currentIndex >= 0 && currentIndex < files.length ? files[currentIndex] : '')
               ? durationSeconds : 0)),
-      for (final entry in metadataFor(path).entries) entry.key: entry.value,
+      for (final entry in metadataFor(path).entries)
+        if (entry.value.trim().isNotEmpty &&
+            !['unknown', 'null', 'n/a', 'none'].contains(entry.value.trim().toLowerCase()))
+          entry.key: entry.value,
     };
     await showModalBottomSheet<void>(context: context, isScrollControlled: true,
       builder: (sheet) => SafeArea(child: Padding(padding: const EdgeInsets.all(18),
@@ -2085,6 +2094,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               ),
               ]);
             })),
+        if (currentIndex >= 0 && currentIndex < files.length)
+          const Spacer(),
         if (currentIndex >= 0 && currentIndex < files.length) GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragStart: (_) => startMiniSwipe(),
@@ -2092,7 +2103,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragEnd: finishMiniSwipe,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 240),
-            margin: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            margin: const EdgeInsets.fromLTRB(7, 0, 7, 0),
             decoration: BoxDecoration(color: const Color(0xFF5D3031),
               borderRadius: BorderRadius.circular(18)),
             child: ListTile(
@@ -2222,8 +2233,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 setState(() => shuffle = !shuffle);
                 await syncQueue(); await saveLibrary();
               }, icon: const Icon(Icons.shuffle_rounded)),
-            IconButton(tooltip: 'Previous track', onPressed: files.isEmpty ? null : () => skipTrack(-1),
-              icon: const Icon(Icons.skip_previous_rounded), iconSize: 36),
+            GestureDetector(behavior: HitTestBehavior.opaque,
+              onTap: files.isEmpty ? null : () => skipTrack(-1),
+              onLongPressStart: currentIndex < 0 ? null : (_) => startTransportHold(-1),
+              onLongPressEnd: (_) => stopTransportHold(),
+              onLongPressCancel: stopTransportHold,
+              child: const SizedBox(width: 52, height: 56,
+                child: Center(child: Icon(Icons.skip_previous_rounded, size: 36)))),
             IconButton.filled(onPressed: files.isEmpty ? import : togglePlayback,
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 160),
                 transitionBuilder: (child, animation) =>
@@ -2232,10 +2248,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: files.isEmpty ? null : () => skipTrack(1),
-              onLongPressStart: currentIndex < 0 ? null : (_) => startFastForward(),
-              onLongPressEnd: (_) => stopFastForward(),
-              onLongPressCancel: stopFastForward,
-              child: Semantics(label: 'Next track; hold to speed up playback',
+              onLongPressStart: currentIndex < 0 ? null : (_) => startTransportHold(1),
+              onLongPressEnd: (_) => stopTransportHold(),
+              onLongPressCancel: stopTransportHold,
+              child: Semantics(label: 'Next track; hold to scrub forward',
                 button: true,
                 child: const SizedBox(width: 52, height: 56,
                   child: Center(child: Icon(Icons.skip_next_rounded, size: 36))))),
@@ -2266,17 +2282,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           const SizedBox(height: 22),
         ],
       ),
-      // Dedicated narrow, transparent seek areas in the side gutters.
-      // Double-tap only; a single tap or scroll does not seek.
-      Positioned.fill(child: Row(children: [
-        GestureDetector(behavior: HitTestBehavior.translucent,
-          onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(-10),
-          child: const SizedBox(width: 24)),
-        const Spacer(),
-        GestureDetector(behavior: HitTestBehavior.translucent,
-          onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(10),
-          child: const SizedBox(width: 24)),
-      ])),
+      // The transport double-tap targets live in clear margins below artwork,
+      // leaving gestures on the title, controls and progress slider untouched.
+      Positioned(left: 0, top: viewport.maxHeight * 0.40, bottom: 0,
+        width: 45, child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(-10))),
+      Positioned(right: 0, top: viewport.maxHeight * 0.40, bottom: 0,
+        width: 45, child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: currentIndex < 0 ? null : () => seekSeconds(10))),
       ]))),
     );
   }
@@ -2348,6 +2363,37 @@ class LiveWaveformPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant LiveWaveformPainter old) =>
       old.isPlaying != isPlaying || old.samples != samples;
+}
+
+class EditableEqCurvePainter extends CustomPainter {
+  final List<double> gains;
+  final Color accent;
+  const EditableEqCurvePainter({required this.gains, required this.accent});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grid = Paint()..color = const Color(0x55FFFFFF)..strokeWidth = 1;
+    for (final db in [-12.0, 0.0, 12.0]) {
+      final y = (12 - db) / 24 * size.height;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
+    final path = Path();
+    for (var i = 0; i < gains.length; i++) {
+      final pos = Offset(size.width * (i + 0.5) / gains.length,
+          (12 - gains[i]) / 24 * size.height);
+      if (i == 0) { path.moveTo(pos.dx, pos.dy); }
+      else { path.lineTo(pos.dx, pos.dy); }
+      canvas.drawCircle(pos, 5.5, Paint()..color = accent);
+    }
+    canvas.drawPath(path, Paint()..color = accent..strokeWidth = 3
+      ..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke..isAntiAlias = true);
+  }
+
+  @override
+  bool shouldRepaint(covariant EditableEqCurvePainter old) =>
+      old.accent != accent ||
+      !listEquals(old.gains, gains);
 }
 
 class EqGridPainter extends CustomPainter {
