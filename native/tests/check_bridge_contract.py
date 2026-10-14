@@ -62,9 +62,10 @@ require("timePitch.overlap = 8" in graph and
         "timePitch.reset()" not in graph and
         "source.stop()" not in graph.split("func setTimePitch(")[1],
         "Pitch and tempo update in-place without stopping or resetting the audio graph")
-require("orderedTrackIndices()" in dart and "queuedPaths = paths" in dart and
+require("orderedTrackIndices()" in dart and "queuedPaths = libraryOrder" in dart and
+        "manualQueueActive" in dart and "ReorderableListView.builder" in dart and
         "return (proposed % queue.count + queue.count) % queue.count" in bridge,
-        "Next/previous follow sorted library queue and wrap at both ends")
+        "Sorted library order and persistent editable queue coexist with shuffle")
 require("songDSP" in dart and "globalDSP" in dart and "loadSongDSP" in dart,
         "Per-song pitch and tempo persist with optional global mode")
 require("DropdownButtonFormField<String>" in dart and "onDoubleTapDown" in dart,

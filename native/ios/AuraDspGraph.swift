@@ -264,11 +264,18 @@ final class AuraDspGraph {
         anchorSeconds = 0
         anchorUptime = ProcessInfo.processInfo.systemUptime
     }
-    func setEQ(_ gains: [Float], enabled: Bool) throws {
+    private var userPreampDb: Float = 0
+
+    func setEQ(_ gains: [Float], enabled: Bool, preampDb: Float = 0) throws {
         guard gains.count == 10, gains.allSatisfy({ $0.isFinite && (-12...12).contains($0) }) else {
             throw NSError(domain: "AuraDSP", code: 1, userInfo: [NSLocalizedDescriptionKey: "Ten EQ gains from -12 to +12 dB required"])
         }
+        guard preampDb.isFinite && (-12...12).contains(preampDb) else {
+            throw NSError(domain: "AuraDSP", code: 15,
+                userInfo: [NSLocalizedDescriptionKey: "Preamp must be -12 to +12 dB"])
+        }
         try configure()
+        userPreampDb = preampDb
         for (i, gain) in gains.enumerated() {
             equalizer.bands[i].gain = gain
             equalizer.bands[i].bypass = false
@@ -276,8 +283,8 @@ final class AuraDspGraph {
         // Preserve usable headroom when boosting, while avoiding unexpected
         // loudness compensation from disabled filters. EQ cuts remain audible.
         let boost = max(0, gains.max() ?? 0)
-        equalizer.globalGain = enabled ? -min(boost, 6) : 0
-        equalizer.bypass = !enabled
+        equalizer.globalGain = (enabled ? -min(boost, 6) : 0) + userPreampDb
+        equalizer.bypass = !enabled && abs(userPreampDb) < 0.01
     }
     func setTemporaryRate(_ rate: Float) throws {
         guard rate.isFinite, (0.5...2).contains(rate) else {

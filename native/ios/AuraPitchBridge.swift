@@ -210,7 +210,9 @@ final class AuraPitchBridge {
                           let numbers = args["gains"] as? [NSNumber] else {
                         throw self.argumentError("Missing ten EQ gains")
                     }
-                    try self.graph.setEQ(numbers.map { $0.floatValue }, enabled: args["enabled"] as? Bool ?? false)
+                    try self.graph.setEQ(numbers.map { $0.floatValue },
+                        enabled: args["enabled"] as? Bool ?? false,
+                        preampDb: (args["preampDb"] as? NSNumber)?.floatValue ?? 0)
                     result(true)
                 case "setNowPlaying":
                     let args = call.arguments as? [String: Any] ?? [:]

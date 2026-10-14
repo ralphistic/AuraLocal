@@ -111,6 +111,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   final eqGains = List<double>.filled(10, 0);
   final customEqPresets = <String, List<double>>{};
   bool eqEnabled = false;
+  double preampDb = 0;
+  final manualQueue = <String>[];
+  bool manualQueueActive = false;
   String eqPreset = 'Flat';
   static const eqFrequencies = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
   static const eqPresets = <String, List<double>>{
@@ -319,6 +322,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       'originalNames': originalNames.map((path, name) =>
           MapEntry(manifestTrackKey(path), name)),
       'eqGains': eqGains, 'eqEnabled': eqEnabled,
+      'preampDb': preampDb,
+      'manualQueue': manualQueue.map(manifestTrackKey).toList(),
+      'manualQueueActive': manualQueueActive,
       'eqPreset': eqPreset, 'customEqPresets': customEqPresets,
       'sortMode': sortMode, 'sortAscending': sortAscending,
       'dateAdded': dateAdded.map((path, added) =>
@@ -372,16 +378,41 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> syncQueue() async {
-    // A visual search, playlist, or favorites filter must never rewrite the
-    // playback library. Keep the transport queue bound to all imported tracks.
-    // This also prevents temporary empty search views from emptying playback.
-    final ordered = List<int>.generate(files.length, (i) => i);
-    ordered.sort(compareTracks);
-    final paths = ordered.map((i) => files[i]).toList();
-    queuedPaths = paths;
+    final ordered = List<int>.generate(files.length, (i) => i)..sort(compareTracks);
+    final libraryOrder = ordered.map((i) => files[i]).toList();
+    // A manually edited queue must not be destroyed by a sort, a search,
+    // an active playlist, or by simply toggling shuffle on and off.
+    manualQueue.removeWhere((path) => !files.contains(path));
+    if (manualQueueActive) {
+      queuedPaths = List<String>.of(manualQueue);
+    } else {
+      queuedPaths = libraryOrder;
+    }
     await nativeDsp.invokeMethod('setQueue', {
-      'paths': paths, 'shuffle': shuffle, 'repeat': repeat,
+      'paths': queuedPaths, 'shuffle': shuffle, 'repeat': repeat,
     });
+  }
+
+  Future<void> editQueue(List<String> ordered) async {
+    manualQueueActive = true;
+    manualQueue..clear()..addAll(ordered.where(files.contains));
+    await syncQueue();
+    await saveLibrary();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> appendCurrentSongToQueue() async {
+    if (currentIndex < 0 || currentIndex >= files.length) return;
+    final snapshot = List<String>.of(queuedPaths);
+    snapshot.add(files[currentIndex]);
+    await editQueue(snapshot);
+  }
+
+  Future<void> resetQueueToLibraryOrder() async {
+    manualQueueActive = false;
+    manualQueue.clear();
+    await syncQueue();
+    await saveLibrary();
   }
 
   void saveSongDSP() {
@@ -511,6 +542,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           pitchSemitones = (decoded['pitchSemitones'] is int ? decoded['pitchSemitones'] as int : 0).clamp(-12, 12);
           pitchCents = (decoded['pitchCents'] is num ? decoded['pitchCents'] as num : 0).toDouble().clamp(-99.0, 99.0).toDouble();
           playbackSpeed = (decoded['speed'] is num ? decoded['speed'] as num : 1).toDouble().clamp(0.5, 2.0).toDouble();
+          preampDb = (decoded['preampDb'] is num
+              ? (decoded['preampDb'] as num).toDouble() : 0.0)
+              .clamp(-12.0, 12.0).toDouble();
+          manualQueueActive = decoded['manualQueueActive'] == true;
+          if (decoded['manualQueue'] is List) {
+            manualQueue.addAll((decoded['manualQueue'] as List)
+                .whereType<String>());
+          }
           if (decoded['eqGains'] is List) {
             final levels = decoded['eqGains'] as List;
             if (levels.length == 10) {
@@ -579,6 +618,14 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           if (mapped.isNotEmpty && await File(mapped).exists()) {
             migrated[old] = mapped;
             if (!files.contains(mapped)) files.add(mapped);
+          }
+        }
+        if (manualQueue.isNotEmpty) {
+          final stored = List<String>.of(manualQueue);
+          manualQueue.clear();
+          for (final old in stored) {
+            final restored = migrated[old];
+            if (restored != null && files.contains(restored)) manualQueue.add(restored);
           }
         }
         // Respect the saved library selection. Never silently re-add old
@@ -710,6 +757,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       // Reload and reconnect available bookmarks. Missing originals can be
       // relinked with Link music from Files, without copying the audio.
       files.clear();
+      manualQueue.clear(); manualQueueActive = false;
       favorites.clear();
       playlists.clear();
       originalNames.clear();
@@ -739,6 +787,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       favoritesOnly = false; query = ''; searchController.clear();
     });
     await syncQueue();
+    manualQueue.clear(); manualQueueActive = false;
     await saveLibrary();
   }
 
@@ -844,9 +893,17 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Future<void> selectAndPlayTrack(int index) async {
     if (index < 0 || index >= files.length) return;
     try {
-      if (queuedPaths.isEmpty || !queuedPaths.contains(files[index])) await syncQueue();
+      if (queuedPaths.isEmpty || !queuedPaths.contains(files[index])) {
+        if (manualQueueActive) {
+          await editQueue([...queuedPaths, files[index]]);
+        } else {
+          await syncQueue();
+        }
+      }
       final queueIndex = queuedPaths.indexOf(files[index]);
-      await nativeDsp.invokeMethod('playIndex', {'index': queueIndex >= 0 ? queueIndex : index});
+      if (queueIndex < 0) throw PlatformException(code: 'QUEUE',
+        message: 'Selected song is not present in playback queue');
+      await nativeDsp.invokeMethod('playIndex', {'index': queueIndex});
       if (mounted) setState(() {
         currentIndex = index; isPlaying = true; positionSeconds = 0; error = null;
       });
@@ -860,7 +917,10 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   Future<void> setNativeTitle() async {
     if (currentIndex < 0 || currentIndex >= files.length) return;
-    await nativeDsp.invokeMethod('setNowPlaying', {'title': displayName(files[currentIndex])});
+    await nativeDsp.invokeMethod('setNowPlaying', {
+      'title': displayName(files[currentIndex]),
+      'artist': metadataFor(files[currentIndex])['artist'] ?? '',
+    });
   }
 
   Future<void> togglePlayback() async {
@@ -962,11 +1022,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   void showLibrary() {
-    if (query.isNotEmpty || favoritesOnly || activePlaylist != null || libraryPlaylistsPage) {
-      searchController.clear();
-      setState(() { query = ''; favoritesOnly = false; activePlaylist = null;
-        libraryPlaylistsPage = false; });
-    }
+    // Return to the full, stable library even after a playlist, search, or
+    // metadata edit. No song files or manifest entries are ever deleted here.
+    searchController.clear();
+    if (mounted) setState(() {
+      query = ''; favoritesOnly = false; activePlaylist = null;
+      libraryPlaylistsPage = false;
+    });
     dismissPlayer();
   }
 
@@ -1150,38 +1212,77 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   }
 
   Future<void> moveQueuedTrack(int from, int to) async {
-    if (from < 0 || from >= files.length || to < 0 || to >= files.length) return;
-    setState(() {
-      final path = files.removeAt(from);
-      files.insert(to, path);
-      if (currentIndex == from) currentIndex = to;
-      else if (from < currentIndex && to >= currentIndex) currentIndex--;
-      else if (from > currentIndex && to <= currentIndex) currentIndex++;
-    });
-    await syncQueue();
-    await saveLibrary();
+    if (from < 0 || from >= queuedPaths.length ||
+        to < 0 || to >= queuedPaths.length) return;
+    final next = List<String>.of(queuedPaths);
+    final path = next.removeAt(from);
+    next.insert(to, path);
+    await editQueue(next);
   }
 
   void showQueue() {
-    showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (sheet) =>
-      SafeArea(child: FractionallySizedBox(heightFactor: 0.78, child: Column(children: [
-        const ListTile(title: Text('Up Next'), subtitle: Text('Following the current library sort order')),
-        Expanded(child: ListView.builder(
-          itemCount: queuedPaths.length,
-          itemBuilder: (_, position) {
-            final index = files.indexOf(queuedPaths[position]);
-            if (index < 0) return const SizedBox.shrink();
-            return ListTile(
-              key: ValueKey(queuedPaths[position]),
-              leading: Icon(index == currentIndex ? Icons.graphic_eq_rounded : Icons.music_note_rounded),
-              title: Text(displayName(files[index]), maxLines: 2, overflow: TextOverflow.fade,
-                  style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.5)),
-              subtitle: index == currentIndex ? const Text('Now playing') : null,
-              onTap: () async { Navigator.pop(sheet); await selectAndPlayTrack(index); },
-            );
-          },
-        )),
-      ]))));
+    showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      builder: (sheet) => StatefulBuilder(builder: (sheet, redraw) => SafeArea(
+        child: FractionallySizedBox(heightFactor: 0.78, child: Column(children: [
+          ListTile(title: const Text('Up Next'),
+            subtitle: Text(manualQueueActive ? 'Custom playback order' :
+              (shuffle ? 'Shuffling library order' : 'Following the current library sort order')),
+            trailing: PopupMenuButton<String>(
+              tooltip: 'Queue actions',
+              onSelected: (action) async {
+                if (action == 'clear') await editQueue([]);
+                if (action == 'reset') await resetQueueToLibraryOrder();
+                if (action == 'add' && currentIndex >= 0 && currentIndex < files.length) {
+                  await editQueue([...queuedPaths, files[currentIndex]]);
+                }
+                redraw(() {});
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'add', child: Text('Add current song')),
+                PopupMenuItem(value: 'clear', child: Text('Clear queue')),
+                PopupMenuItem(value: 'reset', child: Text('Restore library order')),
+              ], icon: const Icon(Icons.more_vert_rounded))),
+          Expanded(child: ReorderableListView.builder(
+            itemCount: queuedPaths.length,
+            onReorder: (oldIndex, newIndex) async {
+              final items = List<String>.of(queuedPaths);
+              if (newIndex > oldIndex) newIndex--;
+              final moved = items.removeAt(oldIndex);
+              items.insert(newIndex, moved);
+              await editQueue(items);
+              redraw(() {});
+            },
+            itemBuilder: (_, position) {
+              final path = queuedPaths[position];
+              final index = files.indexOf(path);
+              if (index < 0) return SizedBox.shrink(key: ValueKey('missing-$position'));
+              return ListTile(
+                key: ValueKey('queue-$position-$path'),
+                leading: Icon(index == currentIndex
+                  ? Icons.graphic_eq_rounded : Icons.music_note_rounded),
+                title: Text(displayName(path), maxLines: 2,
+                  overflow: TextOverflow.fade,
+                  style: const TextStyle(fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5)),
+                subtitle: index == currentIndex ? const Text('Now playing') : null,
+                trailing: IconButton(icon: const Icon(Icons.close_rounded),
+                  tooltip: 'Remove from queue', onPressed: () async {
+                    final items = List<String>.of(queuedPaths)..removeAt(position);
+                    await editQueue(items);
+                    redraw(() {});
+                  }),
+                onTap: () async {
+                  Navigator.pop(sheet);
+                  if (manualQueueActive) {
+                    await nativeDsp.invokeMethod('playIndex', {'index': position});
+                  } else {
+                    await selectAndPlayTrack(index);
+                  }
+                },
+              );
+            },
+          )),
+        ])))));
   }
 
   Future<void> showPitchWheel(StateSetter refresh) async {
@@ -1262,6 +1363,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       await nativeDsp.invokeMethod('setEQ', {
         'gains': eqGains,
         'enabled': eqEnabled,
+        'preampDb': preampDb,
       });
       await saveLibrary();
       if (mounted && error?.startsWith('Equalizer:') == true) {
@@ -1474,6 +1576,19 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                         style: const TextStyle(fontSize: 9, color: Colors.white70)))]),
                   const SizedBox(height: 14),
                   Row(children: [
+                    const Text('Preamp', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const Spacer(),
+                    Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
+                  ]),
+                  Slider(value: preampDb, min: -12, max: 12, divisions: 48,
+                    onChanged: (value) {
+                      refresh(() => preampDb = value);
+                      setState(() {});
+                      scheduleEQUpdate();
+                    },
+                    onChangeEnd: (_) => applyNativeEQ()),
+                  const SizedBox(height: 14),
+                  Row(children: [
                     Expanded(
                       child: FilledButton.icon(
                         onPressed: () => saveCurrentEQPreset(refresh),
@@ -1518,10 +1633,21 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       builder: (sheet) => StatefulBuilder(builder: (sheet, refresh) => SafeArea(
         child: Padding(padding: const EdgeInsets.all(18), child: Column(mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Pitch and tempo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text('Pitch, tempo and preamp', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             const Text('Adjust the one native audio engine. Your original FLAC files remain unchanged.',
               textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 14),
+            Row(children: [
+              const Text('Preamp'), const Spacer(),
+              Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
+            ]),
+            Slider(value: preampDb, min: -12, max: 12, divisions: 48,
+              onChanged: (value) {
+                refresh(() => preampDb = value);
+                setState(() {});
+                scheduleEQUpdate();
+              }, onChangeEnd: (_) => applyNativeEQ()),
             const SizedBox(height: 14),
             if (linkedPitchTempo) ...[
               TextButton(onPressed: () => showTempoWheel(refresh),
@@ -2140,6 +2266,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                     style: TextStyle(color: Colors.white70, fontSize: 12))),
               ]))
           : ListView.builder(primary: false,
+              key: ValueKey('full-library-${files.length}-${libraryHome ? 1 : 0}'),
               physics: const ClampingScrollPhysics(),
               itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];
@@ -2283,6 +2410,13 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   color: const Color(0xFFFFB8A5))),
           ]),
+          if (currentIndex >= 0 && currentIndex < files.length &&
+              (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty)
+            Padding(padding: const EdgeInsets.only(top: 2, bottom: 6),
+              child: Text(metadataFor(files[currentIndex])['artist']!.trim(),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700,
+                  color: Color(0xFFFFB8A5), fontSize: 15))),
           AnimatedSwitcher(duration: const Duration(milliseconds: 360),
             transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
             child: listeningOutput.isEmpty ? const SizedBox(height: 12, key: ValueKey('empty-route')) :
@@ -2364,14 +2498,18 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       ),
       // The transport double-tap targets live in clear margins below artwork,
       // leaving gestures on the title, controls and progress slider untouched.
-      Positioned(left: 1, top: viewport.maxHeight * 0.45,
-        child: Container(height: 30, width: 2,
-          decoration: BoxDecoration(color: const Color(0x32FFB8A5),
-            borderRadius: BorderRadius.circular(2)))),
-      Positioned(right: 1, top: viewport.maxHeight * 0.45,
-        child: Container(height: 30, width: 2,
-          decoration: BoxDecoration(color: const Color(0x32FFB8A5),
-            borderRadius: BorderRadius.circular(2)))),
+      for (final left in [true, false])
+        Positioned(top: viewport.maxHeight * 0.43,
+          left: left ? 0 : null, right: left ? null : 0,
+          child: IgnorePointer(child: Container(width: 26, height: 66,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: left ? Alignment.centerLeft : Alignment.centerRight,
+                end: left ? Alignment.centerRight : Alignment.centerLeft,
+                colors: const [Color(0x225D3031), Color(0x00221A1B)])),
+            child: Center(child: Opacity(opacity: 0.22,
+              child: Icon(Icons.fingerprint_rounded, size: 12,
+                color: const Color(0xFFFFB8A5))))))),
       Positioned(left: 0, top: viewport.maxHeight * 0.24,
         height: viewport.maxHeight * 0.49, width: 52, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
