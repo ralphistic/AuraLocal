@@ -1275,8 +1275,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 key: ValueKey('queue-$position-$path'),
                 leading: Icon(index == currentIndex
                   ? Icons.graphic_eq_rounded : Icons.music_note_rounded),
-                title: Text(displayName(path), maxLines: 2,
-                  overflow: TextOverflow.fade,
+                title: Text(displayName(path), maxLines: 1,
+                  softWrap: false, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700,
                     letterSpacing: -0.5)),
                 subtitle: index == currentIndex ? const Text('Now playing') : null,
@@ -1783,7 +1783,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             IconButton(
               tooltip: linkedPitchTempo ? 'Unlink pitch and tempo' : 'Link pitch and tempo',
               icon: Icon(linkedPitchTempo ? Icons.link_rounded : Icons.link_off_rounded,
-                size: 29, color: GoogleLetterPalette.red),
+                size: 29, color: GoogleLetterPalette.yellow),
               onPressed: () {
                 HapticFeedback.selectionClick();
                 refresh(() {
@@ -1822,7 +1822,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 }, onChangeEnd: (_) => updateNativePitchTempo())),
             ],
             const SizedBox(height: 8),
-            const Text('Preamp', style: TextStyle(fontWeight: FontWeight.w800)),
+            const Text('Preamp', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)),
             Text('${preampDb >= 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB'),
             dragOnlySlider(value: preampDb, min: -12, max: 12, divisions: 48,
               onReset: () {
@@ -2255,26 +2255,27 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   Widget buildLibrary() {
     final matches = orderedTrackIndices();
     return Scaffold(
-      appBar: AppBar(title: TextButton.icon(
+      appBar: AppBar(titleSpacing: 8, title: TextButton.icon(
         onPressed: () => setState(() {
           libraryPlaylistsPage = !libraryPlaylistsPage;
           if (!libraryPlaylistsPage) { activePlaylist = null; favoritesOnly = false; }
         }),
-        label: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
-          style: const TextStyle(fontSize: 29, fontWeight: FontWeight.w900,
-            color: Color(0xFF221A1B))),
+        label: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
+          child: Text(libraryPlaylistsPage ? 'Your Playlists' : 'Your Library',
+            maxLines: 1, softWrap: false,
+            style: const TextStyle(fontSize: 29, fontWeight: FontWeight.w900,
+              color: Color(0xFF221A1B)))),
         icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 21,
           color: Color(0xFF221A1B))), actions: [
         IconButton(tooltip: 'New playlist', icon: const Icon(Icons.playlist_add_rounded, size: 29), onPressed: createPlaylist),
         IconButton(tooltip: 'Import music as a copy', icon: const ChunkyPlusIcon(), onPressed: import),
-        IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_horiz_rounded, size: 29),
+        IconButton(tooltip: 'Library options', icon: const Icon(Icons.more_vert_rounded, size: 29),
           onPressed: showLibraryOptionsPane),
       ]),
       body: SafeArea(bottom: false, child: Column(children: [
-        const SizedBox(height: 6, width: double.infinity,
-          child: CustomPaint(painter: _ColorTileBorder())),
+        // No colored stripe: clean mustard header against cream library.
         ColoredBox(color: GoogleLetterPalette.cream,
-          child: Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: SizedBox(height: 46, child: TextField(
           style: const TextStyle(fontSize: 14, color: Colors.white,
             fontWeight: FontWeight.w700),
@@ -2863,8 +2864,7 @@ class EditableEqCurvePainter extends CustomPainter {
           (12 - gains[i]) / 24 * size.height);
       if (i == 0) { path.moveTo(pos.dx, pos.dy); }
       else { path.lineTo(pos.dx, pos.dy); }
-      const palette = [GoogleLetterPalette.yellow, GoogleLetterPalette.red, GoogleLetterPalette.blue, GoogleLetterPalette.green];
-      canvas.drawCircle(pos, 9, Paint()..color = palette[i % palette.length]);
+      canvas.drawCircle(pos, 9, Paint()..color = GoogleLetterPalette.yellow);
       canvas.drawCircle(pos, 3, Paint()..color = GoogleLetterPalette.cream);
     }
     canvas.drawPath(path, Paint()..color = accent..strokeWidth = 3
