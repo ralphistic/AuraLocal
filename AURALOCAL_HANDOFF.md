@@ -217,3 +217,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-15: Reviewed user Build 190 video: at broken screen DIAG home=true motion=0.00 idx=0/8 scroll=0, library header and search survive but song directory and footer vanish; waveform stranded at x=0 below search. Thus overlay/state hypothesis disproven; failure is in library Scaffold/body layout or paint. Build 191 forces entire Scaffold remount on collapse rather than only Theme, keeps diagnostic overlay.
 
 - 2026-10-15 05:02 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+- 2026-10-15 CORRECTION: User says Build 191 video shows EXACT SAME failure, list only returns after changing song. Previous assistant incorrectly called it promising. Treat 191 as FAILED. Added diagnostic fields rows/filter/page to test whether orderedTrackIndices unexpectedly empties; do not assume visually reappearing rows after song switch means fix.
+
+- 2026-10-15 05:18 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.

@@ -3097,7 +3097,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
           child: Padding(padding: const EdgeInsets.all(5),
             child: Text('DIAG home=$libraryHome motion=${playerMotion.value.toStringAsFixed(2)} '
               'idx=$currentIndex/${files.length} '
-              'scroll=${libraryScroll.hasClients ? libraryScroll.offset.toStringAsFixed(0) : "none"}',
+              'rows=${orderedTrackIndices().length} '
+              'scroll=${libraryScroll.hasClients ? libraryScroll.offset.toStringAsFixed(0) : "none"} '
+              'filter=${query.isNotEmpty || favoritesOnly || activePlaylist != null} '
+              'page=$libraryPlaylistsPage',
               style: const TextStyle(color: Colors.yellow, fontSize: 10,
                 fontWeight: FontWeight.bold))))),
       ),
