@@ -2841,7 +2841,8 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
             decoration: const BoxDecoration(color: GoogleLetterPalette.blue,
               borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
             child: Padding(padding: EdgeInsets.fromLTRB(12, 0, 12,
-              MediaQuery.paddingOf(context).bottom * 0.6), child: ListTile(
+              MediaQuery.paddingOf(context).bottom * 0.6), child: Material(
+              type: MaterialType.transparency, child: ListTile(
             // Isolation experiment: remove waveform-driven paint updates
             // from the MiniPlayer while retaining its dimensions and controls.
             leading: const SizedBox(width: 26, height: 28,
@@ -2855,7 +2856,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
                   color: const Color(0xFF161515), key: ValueKey(isPlaying))),
               onPressed: togglePlayback,
             ),
-          )),
+          ))),
           ),
         )))),
         if (isLibraryExporting || isLibraryRestoring)
