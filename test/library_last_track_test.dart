@@ -112,7 +112,12 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.byTooltip('Minimize player'), findsOneWidget);
       await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
+      // Start the reverse animation, then allow its completion callback to
+      // restore libraryHome before asserting the library's geometry.
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(state.libraryHome, isTrue);
       expect(find.text('8 songs'), findsOneWidget);
       expect(find.byTooltip('Song options'), findsNWidgets(8));
       expect(tester.getSize(find.byType(ListView).first).height, greaterThan(100));
