@@ -113,7 +113,7 @@ class MusicPage extends StatefulWidget {
   State<MusicPage> createState() => _MusicPageState();
 }
 
-class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMixin {
+class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
   static const fileReferences = MethodChannel('auralocal/file_references');
   final files = <String>[];
