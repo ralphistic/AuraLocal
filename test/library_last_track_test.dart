@@ -124,5 +124,50 @@ void main() {
     }
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('both affected tracks preserve library through player expansion and collapse', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const MaterialApp(home: app.MusicPage()));
+    final state = tester.state(find.byType(app.MusicPage)) as dynamic;
+    const castle = 'Castle Boss Battle SMW Remaster_12.wav';
+    const bulby = 'Mario Circuit 8bit Remix - Bulby.mp3';
+    state.setState(() {
+      state.files.clear();
+      state.files.addAll(<String>['C:/Documents/Music/$castle',
+        'C:/Documents/Music/Lost Ancient Ruins VRC6_11.flac',
+        'C:/Documents/Music/$bulby']);
+      state.sortMode = 'dateAdded';
+      state.sortAscending = false;
+      state.dateAdded['C:/Documents/Music/$castle'] = 1791859375464;
+      state.dateAdded['C:/Documents/Music/Lost Ancient Ruins VRC6_11.flac'] = 1791881227939;
+      state.dateAdded['C:/Documents/Music/$bulby'] = 1792039000000;
+    });
+    await tester.pump();
+    expect(find.text('3 songs'), findsOneWidget);
+    for (final selected in <int>[0, 2]) {
+      // Castle is oldest; Bulby is newest. Neither position alone explains it.
+      state.setState(() => state.currentIndex = selected);
+      state.showPlayer();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      // During expansion the library must still have a real layout surface.
+      expect(find.byType(ListView), findsWidgets);
+      expect(tester.getSize(find.byType(ListView).first).height, greaterThan(100));
+      expect(tester.takeException(), isNull);
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byTooltip('Minimize player'), findsOneWidget);
+      await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(state.libraryHome, isTrue);
+      expect(find.text('3 songs'), findsOneWidget);
+      expect(find.byTooltip('Song options'), findsNWidgets(3));
+      expect(tester.takeException(), isNull);
+    }
+  });
 }
 
