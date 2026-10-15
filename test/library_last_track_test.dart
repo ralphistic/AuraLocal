@@ -88,6 +88,29 @@ void main() {
     await tester.ensureVisible(lastRow.first);
     await tester.pump();
     expect(tester.getSize(lastRow.first).width, greaterThan(0));
+    // The real failure recurs after toggling the last song's metadata.
+    // Exercise both states repeatedly, not only one successful collapse.
+    for (var cycle = 0; cycle < 3; cycle++) {
+      state.setState(() {
+        final key = 'Music/Castle Boss Battle SMW Remaster_12.wav';
+        if (cycle.isEven) {
+          state.trackMetadata.remove(key);
+        } else {
+          state.trackMetadata[key] = <String, String>{
+            'title': 'Castle Boss Battle SMW Remaster',
+          };
+        }
+      });
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.ensureVisible(find.text('Castle Boss Battle SMW Remaster').first);
+      await tester.tap(find.text('Castle Boss Battle SMW Remaster').first);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('8 songs'), findsOneWidget);
+      expect(find.byTooltip('Song options'), findsNWidgets(8));
+      expect(tester.getSize(find.byType(ListView).first).height, greaterThan(100));
+    }
     expect(tester.takeException(), isNull);
   });
 }
