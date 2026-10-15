@@ -40,8 +40,11 @@ void main() {
     await tester.tap(find.text('AuraTrack7'));
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.text('AuraTrack7'), findsWidgets);
-    await tester.tap(find.byTooltip('Minimize player'));
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('Minimize player'), findsOneWidget);
+    await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('7 songs'), findsOneWidget);
     expect(find.text('All songs'), findsOneWidget);
     expect(find.text('AuraTrack7'), findsWidgets);
