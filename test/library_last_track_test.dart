@@ -147,9 +147,29 @@ void main() {
     });
     await tester.pump();
     expect(find.text('3 songs'), findsOneWidget);
-    for (final selected in <int>[0, 2]) {
-      // Castle is oldest; Bulby is newest. Neither position alone explains it.
-      state.setState(() => state.currentIndex = selected);
+    var _bulbyVariant = 0;
+    for (final selected in <int>[0, 2, 2, 2, 2, 2]) {
+      // Metadata matrix: no tags, title/artist, extra text fields, artwork
+      // without extra fields, and artwork with extra fields. The exact Bulby
+      // online metadata is not available, so these are synthetic variants.
+      final variant = selected == 0 ? 0 : _bulbyVariant++;
+      final selectedPath = state.files[selected] as String;
+      final metadataKey = 'Music/${selectedPath.split('/').last}';
+      state.setState(() {
+        state.currentIndex = selected;
+        state.trackMetadata.remove(metadataKey);
+        if (selected == 2 && variant > 0) {
+          state.trackMetadata[metadataKey] = <String, String>{
+            'title': 'Mario Circuit 8bit Remix', 'artist': 'Bulby',
+            if (variant == 2 || variant == 4) ...<String, String>{
+              'album': 'Mario Circuit', 'releaseDate': '2026',
+              'genre': 'Chiptune', 'composer': 'Bulby', 'comments': 'Remix',
+            },
+            if (variant == 3 || variant == 4)
+              'artworkData': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=',
+          };
+        }
+      });
       state.showPlayer();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 120));
