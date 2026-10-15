@@ -3044,7 +3044,9 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
     return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [
       // Keep Library text and rows live beneath the animated player layer.
       // A retained raster layer can show dividers but lose glyphs on iOS.
-      buildLibrary(),
+      // Do not keep the library's iOS raster tree alive under an opaque
+      // fully expanded player. Remount it as soon as the player starts closing.
+      if (libraryHome || playerMotion.value < 0.99) buildLibrary(),
       if (!libraryHome && playerMotion.value > 0.001)
         Builder(builder: (context) {
           final progress = playerMotion.value.clamp(0.0, 1.0).toDouble();

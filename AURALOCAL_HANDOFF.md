@@ -198,3 +198,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-14: User confirmed Build 182 no change. Next isolated candidate disables ListView.builder per-row RepaintBoundaries to test whether retained iOS raster layers hide glyphs/artwork. This is unverified, keeps Build 170 gestures and native music data.
 
 - 2026-10-15 02:58 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+- 2026-10-15: User confirmed 183 no change. New candidate unmounts the entire library render tree only when player is fully expanded, and remounts it as soon as collapse starts; targets stale iOS backing layers, leaves player gestures unchanged. Needs on-device confirmation.
+
+- 2026-10-15 04:06 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
