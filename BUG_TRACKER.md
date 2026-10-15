@@ -16,3 +16,4 @@ Reported 2026-10-15. Recorded only; do not implement without user approval. Buil
 
 
 
+- Build 193 FAILED (user confirmed); reducing ListView cacheExtent from 12000 to 350 did not fix. Need layout geometry instrumentation, not more repaint guesses.
