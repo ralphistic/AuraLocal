@@ -21,3 +21,19 @@ jobs:
           flutter pub get
       - name: Eight-track player collapse regression
         run: flutter test test/library_last_track_test.dart --reporter expanded
+  ios-simulator-compile:
+    # Independently check that the investigation branch compiles for iOS.
+    # This does not claim to reproduce an iPhone GPU rendering defect.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Generate iOS project and dependencies
+        run: |
+          flutter create --platforms=ios --project-name auralocal .
+          rm -f test/widget_test.dart
+          flutter pub get
+      - name: Compile Flutter app for iOS simulator
+        run: flutter build ios --simulator --no-codesign
