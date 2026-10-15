@@ -13,3 +13,4 @@ Reported 2026-10-15. Recorded only; do not implement without user approval. Buil
 - [ ] Last-track collapse: Castle Boss Battle SMW Remaster without metadata causes disappearing tracklist and misplaced waveform after player collapse; blank-screen tap reopens player. Adding metadata resolves and undoing recreates. Confirmed on Build 183; Builds 188 and 189 tested: no change. New experiment keeps artist row present for untagged files to avoid metadata-dependent player geometry.
 
 
+

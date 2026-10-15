@@ -2587,6 +2587,9 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   Widget buildLibrary() {
     final matches = orderedTrackIndices();
     return Scaffold(
+      // Recreate the entire library Scaffold after a completed collapse;
+      // the video shows its header surviving while the body/footer vanish.
+      key: ValueKey<String>('library-scaffold-$libraryPaintEpoch'),
       appBar: AppBar(titleSpacing: 8, title: TextButton.icon(
         onPressed: () => setState(() {
           libraryPlaylistsPage = !libraryPlaylistsPage;
