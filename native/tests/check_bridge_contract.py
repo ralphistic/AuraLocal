@@ -33,7 +33,7 @@ require("LiveWaveformPainter" in dart and "installTap(onBus:" in graph and
         "Live waveform samples come from native audio output")
 require("return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [" in dart and
         "AnimationController(vsync: this" in dart and
-        "Positioned(top: top, left: 0, right: 0, bottom: 0" in dart and
+        "Positioned(top: top, left: 0, right: 0," in dart and
         "buildPlayer(expansion: progress)" in dart and "if (!libraryHome)" in dart,
         "Player follows thumb via a single explicitly controlled animation")
 require("source.scheduleSegment(file" in graph and "source.play()" in graph and
@@ -230,7 +230,7 @@ require("child: GestureDetector(" in dart and
         "Album art has its own full-width dismiss swipe recognizer")
 
 require("playerMotion.value < 0.15" in dart and
-        "Positioned(top: top, left: 0, right: 0, bottom: 0" in dart and
+        "Positioned(top: top, left: 0, right: 0," in dart and
         "miniPlayerPositionKey" in dart,
         "Player uses one motion progress and measured footer anchor")
 
@@ -244,9 +244,19 @@ require("onVerticalDragStart: startPlayerDrag" in dart and
         "AnimationController(vsync: this" in dart,
         "Artwork and player use a single drag owner and frame-driven controller")
 
-require("Positioned(top: top, left: 0, right: 0, bottom: 0" in dart and
+require("Positioned(top: top, left: 0, right: 0," in dart and
         "if (!libraryHome && playerMotion.value > 0.001)" in dart and
         "IgnorePointer(ignoring: !libraryHome," not in dart,
         "Fullscreen sheet hit area never blocks Library controls outside visible sheet")
 require("ignoring: !libraryHome && !_playerGestureStarted" in dart,
         "MiniPlayer recognizer remains active throughout upward drag")
+
+require("void _completePlayerCollapse()" in dart and
+        "if (playerMotion.value <= 0.001)" in dart and
+        "_completePlayerCollapse();" in dart and
+        "playerMotion.animateTo(0" in dart,
+        "Collapsed player explicitly restores MiniPlayer even if already at zero")
+require("Positioned(top: top, left: 0, right: 0," in dart and
+        "SizedBox(height: MediaQuery.sizeOf(context).height" in dart and
+        "Positioned(top: top, left: 0, right: 0, bottom: 0" not in dart,
+        "Animated player retains full viewport height; slivers do not compress")

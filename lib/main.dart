@@ -215,8 +215,8 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       if (mounted) setState(() {});
     });
     playerMotion.addStatusListener((status) {
-      if (status == AnimationStatus.dismissed && !draggingPlayer && !libraryHome) {
-        setState(() { libraryHome = true; dismissingPlayer = false; });
+      if (status == AnimationStatus.dismissed && !draggingPlayer) {
+        _completePlayerCollapse();
       }
     });
     nativeDsp.setMethodCallHandler((call) async {
@@ -1137,13 +1137,30 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     return math.max(1.0, MediaQuery.sizeOf(context).height - 95);
   }
 
+  void _completePlayerCollapse() {
+    if (!mounted) return;
+    _playerGestureStarted = false;
+    draggingPlayer = false;
+    dismissingPlayer = false;
+    if (!libraryHome) setState(() => libraryHome = true);
+  }
+
   void dismissPlayer() {
     if (libraryHome) return;
     draggingPlayer = false;
     dismissingPlayer = true;
+    if (playerMotion.value <= 0.001) {
+      playerMotion.value = 0;
+      _completePlayerCollapse();
+      return;
+    }
     playerMotion.animateTo(0, duration: Duration(
       milliseconds: (120 + 180 * playerMotion.value).round()),
-      curve: Curves.easeOutCubic);
+      curve: Curves.easeOutCubic).whenComplete(() {
+        if (mounted && playerMotion.value <= 0.001 && !draggingPlayer) {
+          _completePlayerCollapse();
+        }
+      });
   }
 
   void showPlayer() {
@@ -3011,8 +3028,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             Positioned.fill(child: IgnorePointer(child: BackdropFilter(
               filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
               child: const SizedBox.expand()))),
-            Positioned(top: top, left: 0, right: 0, bottom: 0,
-              child: ClipRRect(borderRadius: const BorderRadius.vertical(
+            Positioned(top: top, left: 0, right: 0,
+              child: SizedBox(height: MediaQuery.sizeOf(context).height,
+                child: ClipRRect(borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(20)), child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onVerticalDragStart: startPlayerDrag,
@@ -3020,7 +3038,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 onVerticalDragEnd: finishPlayerDrag,
                 onVerticalDragCancel: cancelPlayerDrag,
                 child: buildPlayer(expansion: progress),
-              ))),
+              )))),
           ]);
         }),
     ]));
