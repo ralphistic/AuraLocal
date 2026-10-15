@@ -32,24 +32,50 @@ void main() {
     final state = tester.state(find.byType(app.MusicPage)) as dynamic;
     state.setState(() {
       state.files.clear();
-      state.files.addAll(List.generate(7, (i) => '/tmp/AuraTrack${i + 1}.flac'));
+      // Exact eight-song order and titles from the user's exported library.
+      // Dates mirror AuraLocal-Library-Backup.zip (2026-10-15).
+      const names = <String>[
+        'Castle Boss Battle SMW Remaster_12.wav',
+        'Lost Ancient Ruins VRC6_11.flac',
+        'FF4 Battle 2 8Bit.wav',
+        '1-01. Hyrule Castle.flac',
+        '06. Majestic Castle.flac',
+        '09 - Violent Breathing (1).mp3',
+        'BowserCastle.mp3',
+        '12. Rainbow Road.flac',
+      ];
+      const dates = <int>[
+        1791859375464, 1791881227939, 1791898408738,
+        1791905856256, 1791908133268, 1791941811601,
+        1791948961459, 1792038089197,
+      ];
+      state.files.addAll(names.map((name) => 'C:/Documents/Music/$name'));
+      state.sortMode = 'dateAdded';
+      state.sortAscending = false;
+      for (var i = 0; i < names.length; i++) {
+        state.dateAdded['C:/Documents/Music/${names[i]}'] = dates[i];
+      }
+      state.originalNames['C:/Documents/Music/Castle Boss Battle SMW Remaster_12.wav'] =
+          'Castle Boss Battle SMW Remaster.wav';
+      state.trackMetadata['Music/Castle Boss Battle SMW Remaster_12.wav'] =
+          <String, String>{'title': 'Castle Boss Battle SMW Remaster', 'releaseDate': '2019-09-05'};
     });
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('7 songs'), findsOneWidget);
-    await tester.ensureVisible(find.text('AuraTrack7'));
-    await tester.tap(find.text('AuraTrack7'));
+    expect(find.text('8 songs'), findsOneWidget);
+    await tester.ensureVisible(find.text('Castle Boss Battle SMW Remaster'));
+    await tester.tap(find.text('Castle Boss Battle SMW Remaster'));
     await tester.pump(const Duration(milliseconds: 350));
-    expect(find.text('AuraTrack7'), findsWidgets);
+    expect(find.text('Castle Boss Battle SMW Remaster'), findsWidgets);
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byTooltip('Minimize player'), findsOneWidget);
     await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('7 songs'), findsOneWidget);
+    expect(find.text('8 songs'), findsOneWidget);
     expect(find.text('All songs'), findsOneWidget);
-    expect(find.text('AuraTrack7'), findsWidgets);
+    expect(find.text('Castle Boss Battle SMW Remaster'), findsWidgets);
     expect(find.byTooltip('Sort tracks'), findsOneWidget);
-    expect(find.byTooltip('Song options'), findsNWidgets(7));
+    expect(find.byTooltip('Song options'), findsNWidgets(8));
     expect(tester.takeException(), isNull);
   });
 }

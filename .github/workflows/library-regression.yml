@@ -1,0 +1,23 @@
+name: Isolated library regression
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - investigation/last-track-layout
+permissions:
+  contents: read
+jobs:
+  library-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Prepare Flutter dependencies
+        run: |
+          flutter create --platforms=ios --project-name auralocal .
+          rm -f test/widget_test.dart
+          flutter pub get
+      - name: Eight-track player collapse regression
+        run: flutter test test/library_last_track_test.dart --reporter expanded
