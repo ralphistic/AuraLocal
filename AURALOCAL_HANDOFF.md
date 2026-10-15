@@ -192,3 +192,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-15 02:02 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
 
 - 2026-10-15 02:27 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+- 2026-10-14: Candidate 182: remount only the keyed library render subtree after player collapse to clear stale iOS glyph/artwork compositing; preserve persistent scroll controller, Build 170 gestures and music data. Needs iPhone verification.
+
+- 2026-10-15 02:49 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.

@@ -160,6 +160,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   int dspRequestGeneration = 0;
   bool isPlaying = false;
   bool libraryHome = true;
+  int libraryPaintEpoch = 0;
   bool favoritesOnly = false;
   bool sortAscending = true;
   String sortMode = 'alphabetical';
@@ -1153,7 +1154,11 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
     _playerGestureStarted = false;
     draggingPlayer = false;
     dismissingPlayer = false;
-    if (!libraryHome) setState(() => libraryHome = true);
+    setState(() {
+      libraryHome = true;
+      // Refresh iOS library render subtree after player overlay teardown.
+      libraryPaintEpoch++;
+    });
   }
 
   void dismissPlayer() {
@@ -2625,7 +2630,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
                 libraryPlaylistsPage = false; activePlaylist = name;
                 favoritesOnly = false; query = ''; searchController.clear();
               })),
-        ]) : Theme(data: Theme.of(context).copyWith(
+        ]) : Theme(key: ValueKey<int>(libraryPaintEpoch), data: Theme.of(context).copyWith(
           brightness: Brightness.light,
           colorScheme: ColorScheme.fromSeed(
             seedColor: GoogleLetterPalette.red, brightness: Brightness.light),
