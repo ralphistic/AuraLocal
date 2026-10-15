@@ -1131,8 +1131,17 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   // A single progress source owns translation, blur, color and completion.
   // Measure the footer's actual global top rather than assume a 73px height.
   double _collapsedPlayerOffset() {
-    final render = miniPlayerPositionKey.currentContext?.findRenderObject();
-    if (render is RenderBox && render.hasSize) {
+    // Never probe a remounting MiniPlayer while the full player owns the UI.
+    if (!libraryHome) return _measuredCollapsedOffset > 0
+        ? _measuredCollapsedOffset
+        : math.max(1.0, MediaQuery.sizeOf(context).height - 95);
+    // The MiniPlayer is unmounted while the full player is expanded.
+    // A GlobalKey may briefly point at an inactive element during remount;
+    // asking that element for its RenderObject throws in Flutter.
+    final miniContext = miniPlayerPositionKey.currentContext;
+    final render = miniContext != null && miniContext.mounted
+        ? miniContext.findRenderObject() : null;
+    if (render is RenderBox && render.attached && render.hasSize) {
       final location = render.localToGlobal(Offset.zero);
       final root = context.findRenderObject();
       if (root is RenderBox && root.hasSize) {
