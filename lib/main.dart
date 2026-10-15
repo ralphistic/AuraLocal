@@ -3045,9 +3045,11 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
           // inside a full-screen hit-test box. Everything above the sheet
           // remains fully interactive in the Library.
           return Stack(children: [
-            Positioned.fill(child: IgnorePointer(child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
-              child: const SizedBox.expand()))),
+            // Avoid filtering the live song list into an offscreen backdrop
+            // layer while the player animates. iOS may retain that layer after
+            // collapse, hiding text and artwork while dividers remain.
+            Positioned.fill(child: IgnorePointer(child: ColoredBox(
+              color: GoogleLetterPalette.cream.withValues(alpha: blur * 0.12)))),
             Positioned(top: top, left: 0, right: 0,
               child: SizedBox(height: MediaQuery.sizeOf(context).height,
                 child: ClipRRect(borderRadius: const BorderRadius.vertical(
