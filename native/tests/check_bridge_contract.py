@@ -101,9 +101,10 @@ require("key: const PageStorageKey<String>('persistent-song-library')" in dart a
         "cacheExtent: files.length <= 20" in dart and
         "libraryRenderEpoch++" not in dart,
         "Song list keeps stable scroll identity on minimize and caches small libraries")
-require("sigmaX: blur * 7, sigmaY: blur * 7" in dart and
-        "final blur = ((progress - 0.20) / 0.80)" in dart,
-        "Backdrop blur is synchronized to actual player translation")
+require("final blur = ((progress - 0.20) / 0.80)" in dart and
+        "color: GoogleLetterPalette.cream.withValues(alpha: blur * 0.12)" in dart and
+        "Positioned.fill(child: IgnorePointer(child: BackdropFilter(" not in dart,
+        "Player transition avoids iOS backdrop-filter compositing over live library")
 
 require("class _ColorTileBorder extends CustomPainter" in dart and
         "GoogleLetterPalette.cream" in dart,
