@@ -48,19 +48,11 @@ class _ScrollingTrackTitleState extends State<ScrollingTrackTitle> with TickerPr
       motion.stop();
       return Text(widget.text, maxLines: 1, style: style);
     }
-    final distance = textWidth - bounds.maxWidth + 16;
-    final duration = Duration(milliseconds: (distance * 35).round().clamp(2500, 25000).toInt());
-    if (motion.duration != duration) {
-      motion.duration = duration;
-      motion.repeat(reverse: true);
-    } else if (!motion.isAnimating) {
-      motion.repeat(reverse: true);
-    }
-    return ClipRect(child: AnimatedBuilder(animation: motion, builder: (_, __) =>
-      Transform.translate(offset: Offset(-distance * motion.value, 0),
-        child: OverflowBox(alignment: Alignment.centerLeft, minWidth: 0, maxWidth: double.infinity,
-          minHeight: 0, maxHeight: 28,
-          child: SizedBox(width: textWidth + 16, child: Text(widget.text, maxLines: 1, softWrap: false, overflow: TextOverflow.visible, style: style))))));
+    // Diagnostic isolation: remove the unbounded OverflowBox entirely.
+    // A title must never invalidate the library's render tree.
+    motion.stop();
+    return Text(widget.text, maxLines: 1, softWrap: false,
+      overflow: TextOverflow.ellipsis, style: style);
   });
 }
 
