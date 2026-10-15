@@ -1133,7 +1133,11 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
       final root = context.findRenderObject();
       if (root is RenderBox && root.hasSize) {
         final y = root.globalToLocal(location).dy;
-        if (y > 0 && y.isFinite) _measuredCollapsedOffset = y;
+        // Ignore stale offstage MiniPlayer coordinates near the top-left.
+        final viewportHeight = MediaQuery.sizeOf(context).height;
+        if (y.isFinite && y > viewportHeight * 0.55 && y < viewportHeight) {
+          _measuredCollapsedOffset = y;
+        }
       }
     }
     if (_measuredCollapsedOffset > 0) return _measuredCollapsedOffset;

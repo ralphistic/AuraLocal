@@ -204,3 +204,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-15: User clarified Build 183: after last song, collapse shows misplaced waveform top-left and tapping blank area reopens player; changing track restores list. Fix candidate targets stale full-player overlay hit testing: force cleanup on dismissed regardless of drag flag, hide overlay under 2% progress, finalize collapse on completion. Preserve Build 170 gestures. Build 185 was not user-tested.
 
 - 2026-10-15 04:13 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+- 2026-10-15: Metadata clue: last song without metadata fails collapse, adding metadata resolves, undo reintroduces. Guard MiniPlayer measured offset against offstage top-left coordinates, which could position overlay over library. Hypothesis not yet device-confirmed.
+
+- 2026-10-15 04:19 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
