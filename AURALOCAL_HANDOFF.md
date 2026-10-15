@@ -207,3 +207,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-15: Metadata clue: last song without metadata fails collapse, adding metadata resolves, undo reintroduces. Guard MiniPlayer measured offset against offstage top-left coordinates, which could position overlay over library. Hypothesis not yet device-confirmed.
 
 - 2026-10-15 04:19 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+- 2026-10-15: User tested Build 188, no change. Root clue remains metadata-dependent. New candidate ensures untagged track has a stable artist-row placeholder in full player; metadata remains unchanged. Pending device test.
+
+- 2026-10-15 04:33 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.

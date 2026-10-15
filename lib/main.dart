@@ -2946,10 +2946,15 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   color: GoogleLetterPalette.red)),
           ]),
-          if (currentIndex >= 0 && currentIndex < files.length &&
-              (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty)
+          // Keep player geometry identical with and without tag metadata.
+          // Previously the entire artist row disappeared for untagged files,
+          // changing the full-player layout only for those tracks.
+          if (currentIndex >= 0 && currentIndex < files.length)
             Padding(padding: const EdgeInsets.only(top: 2, bottom: 6),
-              child: Text(metadataFor(files[currentIndex])['artist']!.trim(),
+              child: Text(
+                (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty
+                  ? metadataFor(files[currentIndex])['artist']!.trim()
+                  : 'Unknown artist',
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700,
                   color: GoogleLetterPalette.creamText, fontSize: 15))),
