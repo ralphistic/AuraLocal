@@ -224,3 +224,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 
 - 2026-10-15 05:30 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
 - 2026-10-15: USER CONFIRMED BUILD 193 FAILED. 350px cacheExtent does not resolve last-track blank library. DO NOT repeat cache/repaint/scaffold remount approaches. Existing diagnostics home=true motion=0 rows=8 filter=false scroll=0 show data/state intact. Next investigation: instrument actual RenderBox constraints/size/position of library list and footer versus viewport, and isolate player-specific waveform/metadata widgets before claiming root cause.
+- 2026-10-15: Started isolated investigation branch investigation/last-track-layout (not a release). Hypothesis test removes waveform ValueListenableBuilder/CustomPaint from selected library row and MiniPlayer, replaces with static icons same dimensions. This is NOT a fix, do not merge without verification. No user install requested.
+
+- 2026-10-15 05:41 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.

@@ -2764,10 +2764,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
                 leading: songArtworkThumbnail(files[index]),
                 title: Row(children: [
                   if (index == currentIndex) ...[
-                    ValueListenableBuilder<List<double>>(valueListenable: waveformLevels,
-                      builder: (_, levels, __) => SizedBox(width: 22, height: 26,
-                        child: CustomPaint(painter: MiniMusicBarsPainter(
-                          levels: levels, active: isPlaying)))),
+                    // Isolation experiment: eliminate the continuously repainted
+                    // waveform from the selected library row.
+                    const SizedBox(width: 22, height: 26,
+                      child: Icon(Icons.graphic_eq_rounded, size: 20)), 
                     const SizedBox(width: 5),
                   ],
                   Flexible(child: Align(alignment: Alignment.centerLeft,
@@ -2849,11 +2849,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
               borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
             child: Padding(padding: EdgeInsets.fromLTRB(12, 0, 12,
               MediaQuery.paddingOf(context).bottom * 0.6), child: ListTile(
-            leading: ValueListenableBuilder<List<double>>(
-              valueListenable: waveformLevels,
-              builder: (_, levels, __) => SizedBox(width: 26, height: 28,
-                child: CustomPaint(painter: MiniMusicBarsPainter(
-                  levels: levels, active: isPlaying)))),
+            // Isolation experiment: remove waveform-driven paint updates
+            // from the MiniPlayer while retaining its dimensions and controls.
+            leading: const SizedBox(width: 26, height: 28,
+              child: Icon(Icons.graphic_eq_rounded, size: 24)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(
               fontWeight: FontWeight.w800, color: Color(0xFF161515))),
             onTap: showPlayer,
