@@ -165,6 +165,45 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   bool isPlaying = false;
   bool libraryHome = true;
   int libraryPaintEpoch = 0;
+  bool diagnosticRecording = false;
+  final List<Map<String, Object?>> diagnosticEvents = [];
+  int diagnosticSequence = 0;
+  void diagnostic(String event, [Map<String, Object?> extra = const {}]) {
+    if (!diagnosticRecording) return;
+    if (!mounted) return;
+    final index = currentIndex;
+    final path = index >= 0 && index < files.length ? files[index] : null;
+    final metadata = path == null ? const <String, String>{} : metadataFor(path);
+    diagnosticEvents.add(<String, Object?>{
+      'seq': ++diagnosticSequence, 'time': DateTime.now().toIso8601String(),
+      'event': event, 'libraryHome': libraryHome,
+      'motion': playerMotion.value, 'index': currentIndex,
+      'fileCount': files.length, 'paintEpoch': libraryPaintEpoch,
+      'scrollAttached': libraryScroll.hasClients,
+      'scrollOffset': libraryScroll.hasClients && libraryScroll.positions.length == 1
+          ? libraryScroll.offset : null,
+      'metadataFields': metadata.keys.toList(),
+      'hasLocalArtwork': (metadata['artworkData'] ?? '').isNotEmpty,
+      'hasRemoteArtwork': (metadata['artworkUrl'] ?? '').isNotEmpty,
+      'embeddedArtworkState': path == null ? 'none' : !embeddedArt.containsKey(path)
+          ? 'unrequested' : embeddedArt[path] == null ? 'missing' : 'loaded',
+      ...extra,
+    });
+    if (diagnosticEvents.length > 3000) diagnosticEvents.removeAt(0);
+  }
+
+  Future<void> exportDiagnostics() async {
+    diagnostic('export');
+    final data = const JsonEncoder.withIndent('  ').convert(<String, Object?>{
+      'schema': 1, 'build': auraBuildNumber, 'events': diagnosticEvents,
+    });
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Export AuraLocal diagnostics',
+      fileName: 'auralocal-diagnostics-${DateTime.now().millisecondsSinceEpoch}.json',
+      type: FileType.custom, allowedExtensions: ['json'],
+      bytes: Uint8List.fromList(utf8.encode(data)),
+    );
+  }
   bool favoritesOnly = false;
   bool sortAscending = true;
   String sortMode = 'alphabetical';
@@ -220,6 +259,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
       if (mounted) setState(() {});
     });
     playerMotion.addStatusListener((status) {
+      diagnostic('player_motion_status', {'status': status.name});
       // A completed collapse must remove the full-screen hit-test overlay,
       // even if an iOS drag recognizer has not yet cleared its flag.
       if (status == AnimationStatus.dismissed && !libraryHome) {
@@ -1159,6 +1199,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
 
   void _completePlayerCollapse() {
     if (!mounted) return;
+    diagnostic('collapse_complete_begin');
     // Reconcile a stale retained ListView offset after the footer reappears.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !libraryScroll.hasClients) return;
@@ -1181,6 +1222,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   }
 
   void dismissPlayer() {
+    diagnostic('dismiss_player');
     if (libraryHome) return;
     draggingPlayer = false;
     dismissingPlayer = true;
@@ -1200,6 +1242,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   }
 
   void showPlayer() {
+    diagnostic('show_player');
     if (!mounted) return;
     _collapsedPlayerOffset();
     setState(() { libraryHome = false; dismissingPlayer = false; draggingPlayer = false; });
@@ -2353,11 +2396,13 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
 
   Future<void> probeEmbeddedArt(String path) async {
     if (embeddedArt.containsKey(path)) return;
+    diagnostic('embedded_art_probe_start', {'selected': currentIndex >= 0 && currentIndex < files.length && files[currentIndex] == path});
     embeddedArt[path] = null;
     try {
       final encoded = await nativeDsp.invokeMethod<String>('embeddedArtwork', {'path': path});
       if (encoded != null && encoded.isNotEmpty && encoded.length < 24000000) {
         embeddedArt[path] = base64Decode(encoded);
+        diagnostic('embedded_art_probe_loaded', {'bytes': embeddedArt[path]?.length ?? 0});
         if (mounted) setState(() {});
       }
     } catch (_) {}
@@ -2438,6 +2483,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   }
 
   Future<void> saveTrackMetadata(String path, Map<String, String> data) async {
+    diagnostic('metadata_saved', {'fields': data.keys.toList(), 'hasArtworkData': (data['artworkData'] ?? '').isNotEmpty});
     localThumbnailBytes.remove(path);
     if (mounted) setState(() => trackMetadata[manifestTrackKey(path)] = Map.of(data));
     await saveLibrary();
@@ -2545,6 +2591,25 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
                             icon: Icons.restore_rounded,
                             accent: GoogleLetterPalette.green,
                             onTap: () { Navigator.pop(dialogContext); restoreLibraryBackup(); }),
+                        ]),
+                        _settingsSection('Diagnostics', [
+                          _settingsOption(label: diagnosticRecording ? 'Stop diagnostics' : 'Start diagnostics',
+                            detail: diagnosticRecording ? '${diagnosticEvents.length} events recorded' : 'Record player and library transitions',
+                            icon: Icons.bug_report_outlined,
+                            accent: GoogleLetterPalette.yellow,
+                            onTap: () {
+                              Navigator.pop(dialogContext);
+                              setState(() {
+                                diagnosticRecording = !diagnosticRecording;
+                                if (diagnosticRecording) { diagnosticEvents.clear(); diagnosticSequence = 0; }
+                              });
+                              diagnostic('recording_started');
+                            }),
+                          _settingsOption(label: 'Export diagnostics',
+                            detail: 'Save event log as JSON to Files',
+                            icon: Icons.ios_share_rounded,
+                            accent: GoogleLetterPalette.green,
+                            onTap: () { Navigator.pop(dialogContext); exportDiagnostics(); }),
                         ]),
                         _settingsSection('Maintenance', [
                           _settingsOption(label: 'Clear remembered song list',
