@@ -24,7 +24,7 @@ void main() {
   });
 
   testWidgets('last song remains in library after opening and dismissing player', (tester) async {
-    await tester.view.setPhysicalSize(const Size(390, 844));
+    tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -50,3 +50,4 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 }
+
