@@ -1139,6 +1139,17 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
 
   void _completePlayerCollapse() {
     if (!mounted) return;
+    // Reconcile a stale retained ListView offset after the footer reappears.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !libraryScroll.hasClients) return;
+      final position = libraryScroll.position;
+      if (!position.hasContentDimensions) return;
+      final bounded = position.pixels.clamp(
+        position.minScrollExtent, position.maxScrollExtent).toDouble();
+      if ((bounded - position.pixels).abs() > 0.5) {
+        libraryScroll.jumpTo(bounded);
+      }
+    });
     _playerGestureStarted = false;
     draggingPlayer = false;
     dismissingPlayer = false;
@@ -2895,10 +2906,17 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                 color: GoogleLetterPalette.red, child: Icon(Icons.music_note_rounded, size: 100)));
             }
             final path = files[currentIndex];
-            return SizedBox.square(dimension: side, child: ArtworkFlipCard(
-              key: ValueKey(path), trackName: displayName(path),
-              metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
-              onSave: (data) => saveTrackMetadata(path, data)));
+            return SizedBox.square(dimension: side, child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              // The artwork's ListView competes with the outer dismiss gesture.
+              onVerticalDragStart: startPlayerDrag,
+              onVerticalDragUpdate: updatePlayerDrag,
+              onVerticalDragEnd: finishPlayerDrag,
+              onVerticalDragCancel: cancelPlayerDrag,
+              child: ArtworkFlipCard(
+                key: ValueKey(path), trackName: displayName(path),
+                metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
+                onSave: (data) => saveTrackMetadata(path, data))));
           }))),
           const SizedBox(height: 14),
           Row(children: [
