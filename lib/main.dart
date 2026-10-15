@@ -216,7 +216,9 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
       if (mounted) setState(() {});
     });
     playerMotion.addStatusListener((status) {
-      if (status == AnimationStatus.dismissed && !draggingPlayer) {
+      // A completed collapse must remove the full-screen hit-test overlay,
+      // even if an iOS drag recognizer has not yet cleared its flag.
+      if (status == AnimationStatus.dismissed && !libraryHome) {
         _completePlayerCollapse();
       }
     });
@@ -1173,7 +1175,8 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
     playerMotion.animateTo(0, duration: Duration(
       milliseconds: (120 + 180 * playerMotion.value).round()),
       curve: Curves.easeOutCubic).whenComplete(() {
-        if (mounted && playerMotion.value <= 0.001 && !draggingPlayer) {
+        if (mounted && playerMotion.value <= 0.02 && !libraryHome) {
+          playerMotion.value = 0;
           _completePlayerCollapse();
         }
       });
@@ -3047,7 +3050,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
       // Do not keep the library's iOS raster tree alive under an opaque
       // fully expanded player. Remount it as soon as the player starts closing.
       if (libraryHome || playerMotion.value < 0.99) buildLibrary(),
-      if (!libraryHome && playerMotion.value > 0.001)
+      if (!libraryHome && playerMotion.value > 0.02)
         Builder(builder: (context) {
           final progress = playerMotion.value.clamp(0.0, 1.0).toDouble();
           final top = (1.0 - progress) * _collapsedPlayerOffset();

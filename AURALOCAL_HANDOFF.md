@@ -201,3 +201,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-15: User confirmed 183 no change. New candidate unmounts the entire library render tree only when player is fully expanded, and remounts it as soon as collapse starts; targets stale iOS backing layers, leaves player gestures unchanged. Needs on-device confirmation.
 
 - 2026-10-15 04:06 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+- 2026-10-15: User clarified Build 183: after last song, collapse shows misplaced waveform top-left and tapping blank area reopens player; changing track restores list. Fix candidate targets stale full-player overlay hit testing: force cleanup on dismissed regardless of drag flag, hide overlay under 2% progress, finalize collapse on completion. Preserve Build 170 gestures. Build 185 was not user-tested.
+
+- 2026-10-15 04:13 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
