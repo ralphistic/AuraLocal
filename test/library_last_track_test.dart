@@ -102,9 +102,13 @@ void main() {
         }
       });
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.ensureVisible(find.text('Castle Boss Battle SMW Remaster').first);
-      await tester.tap(find.text('Castle Boss Battle SMW Remaster').first);
+      // Re-enter the full player deterministically: the same title appears
+      // in both the library and MiniPlayer, so tapping the first text finder
+      // can hit the wrong surface and never open the player.
+      state.setState(() => state.currentIndex = 0);
+      state.showPlayer();
       await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byTooltip('Minimize player'), findsOneWidget);
       await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('8 songs'), findsOneWidget);
