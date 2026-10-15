@@ -27,7 +27,7 @@ class ScrollingTrackTitle extends StatefulWidget {
   State<ScrollingTrackTitle> createState() => _ScrollingTrackTitleState();
 }
 
-class _ScrollingTrackTitleState extends State<ScrollingTrackTitle> with SingleTickerProviderStateMixin {
+class _ScrollingTrackTitleState extends State<ScrollingTrackTitle> with TickerProviderStateMixin {
   late final AnimationController motion = AnimationController(vsync: this);
   @override
   void dispose() { motion.dispose(); super.dispose(); }
@@ -186,6 +186,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   bool pollBusy = false;
   int tick = 0;
   double playerDrag = 0;
+  late final AnimationController playerMotion;
+  final GlobalKey miniPlayerPositionKey = GlobalKey(debugLabel: 'mini-player-position');
+  // The physical top edge of the footer is the only collapsed endpoint.
+  double _measuredCollapsedOffset = 0;
+  bool _playerGestureStarted = false;
+  int _selectionEpoch = 0;
   // The mini footer retains its gesture recognizer during every transition.
   // The full player floats above the same footer without a second preview.
   bool draggingPlayer = false;
@@ -203,6 +209,16 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
+    playerMotion = AnimationController(vsync: this, value: 0,
+      duration: const Duration(milliseconds: 300));
+    playerMotion.addListener(() {
+      if (mounted) setState(() {});
+    });
+    playerMotion.addStatusListener((status) {
+      if (status == AnimationStatus.dismissed && !draggingPlayer && !libraryHome) {
+        setState(() { libraryHome = true; dismissingPlayer = false; });
+      }
+    });
     nativeDsp.setMethodCallHandler((call) async {
       if (call.method != 'nativePlaybackEvent' || !mounted) return;
       final state = Map<String, dynamic>.from(call.arguments as Map);
@@ -240,6 +256,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     dspWheelDebounce?.cancel();
     eqDebounce?.cancel();
     spectrumTicker?.dispose();
+    playerMotion.dispose();
     dspSaveDebounce?.cancel();
     libraryScroll.dispose();
     searchController.dispose();
@@ -1104,64 +1121,98 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     dismissPlayer();
   }
 
-  // Restore the original magnetic, finger-tracked player animation (431aa9e).
+  // A single progress source owns translation, blur, color and completion.
+  // Measure the footer's actual global top rather than assume a 73px height.
   double _collapsedPlayerOffset() {
-    // MediaQuery padding is outside Scaffold's layout, while the MiniPlayer's
-    // 73px ListTile + actual bottom inset is inside. Use the same geometry for
-    // the expanded overlay so its bottom snaps exactly onto the real footer.
-    final h = MediaQuery.sizeOf(context).height;
-    final bottom = MediaQuery.paddingOf(context).bottom * 0.6;
-    return math.max(1.0, h - 73 - bottom);
+    final render = miniPlayerPositionKey.currentContext?.findRenderObject();
+    if (render is RenderBox && render.hasSize) {
+      final location = render.localToGlobal(Offset.zero);
+      final root = context.findRenderObject();
+      if (root is RenderBox && root.hasSize) {
+        final y = root.globalToLocal(location).dy;
+        if (y > 0 && y.isFinite) _measuredCollapsedOffset = y;
+      }
+    }
+    if (_measuredCollapsedOffset > 0) return _measuredCollapsedOffset;
+    return math.max(1.0, MediaQuery.sizeOf(context).height - 95);
   }
 
   void dismissPlayer() {
-    if (libraryHome || dismissingPlayer) return;
-    final collapsed = _collapsedPlayerOffset();
-    // Completion is driven by the actual animated pixel position, not a
-    // competing timer that can hide the player before it reaches the footer.
-    setState(() { dismissingPlayer = true; draggingPlayer = false; playerDrag = collapsed; });
+    if (libraryHome) return;
+    draggingPlayer = false;
+    dismissingPlayer = true;
+    playerMotion.animateTo(0, duration: Duration(
+      milliseconds: (120 + 180 * playerMotion.value).round()),
+      curve: Curves.easeOutCubic);
   }
 
   void showPlayer() {
-    if (!libraryHome) return;
-    final collapsed = _collapsedPlayerOffset();
-    setState(() {
-      libraryHome = false; dismissingPlayer = false;
-      playerDrag = collapsed; draggingPlayer = true;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() { draggingPlayer = false; playerDrag = 0; });
-    });
+    if (!mounted) return;
+    _collapsedPlayerOffset();
+    setState(() { libraryHome = false; dismissingPlayer = false; draggingPlayer = false; });
+    playerMotion.animateTo(1, duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic);
   }
 
   void startMiniSwipe() {
     if (!libraryHome) return;
+    _collapsedPlayerOffset();
+    playerMotion.stop();
+    _playerGestureStarted = true;
     miniSwipeTravel = 0;
-    setState(() { libraryHome = false; playerDrag = _collapsedPlayerOffset(); draggingPlayer = true; dismissingPlayer = false; });
+    setState(() { libraryHome = false; draggingPlayer = true; dismissingPlayer = false; });
   }
 
   void updateMiniSwipe(DragUpdateDetails details) {
+    if (!_playerGestureStarted) return;
     miniSwipeTravel += details.delta.dy;
-    final collapsed = _collapsedPlayerOffset();
-    setState(() => playerDrag = (collapsed + miniSwipeTravel).clamp(0.0, collapsed).toDouble());
+    final height = _collapsedPlayerOffset();
+    playerMotion.value = (playerMotion.value - details.delta.dy / height).clamp(0.0, 1.0);
   }
 
   void finishMiniSwipe(DragEndDetails details) {
-    final rise = -miniSwipeTravel;
-    // The same player remains visible throughout the upward gesture.
-    if (rise > 34 || (details.primaryVelocity ?? 0) < -220) {
-      setState(() { playerDrag = 0; draggingPlayer = false; });
+    _playerGestureStarted = false;
+    draggingPlayer = false;
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity < -260 || (velocity <= 260 && playerMotion.value > 0.12)) {
+      playerMotion.animateTo(1, duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic);
+    } else {
+      dismissPlayer();
+    }
+  }
+
+  void startPlayerDrag(DragStartDetails details) {
+    playerMotion.stop();
+    draggingPlayer = true;
+    _playerGestureStarted = true;
+  }
+
+  void updatePlayerDrag(DragUpdateDetails details) {
+    if (!_playerGestureStarted) return;
+    playerMotion.value = (playerMotion.value - details.delta.dy / _collapsedPlayerOffset())
+      .clamp(0.0, 1.0);
+  }
+
+  void cancelPlayerDrag() {
+    _playerGestureStarted = false;
+    draggingPlayer = false;
+    if (playerMotion.value > 0.5) {
+      playerMotion.animateTo(1, curve: Curves.easeOutCubic);
     } else {
       dismissPlayer();
     }
   }
 
   void finishPlayerDrag(DragEndDetails details) {
-    final collapsed = _collapsedPlayerOffset();
-    if (playerDrag > collapsed * 0.12 || (details.primaryVelocity ?? 0) > 450) {
+    _playerGestureStarted = false;
+    draggingPlayer = false;
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity > 260 || (velocity >= -260 && playerMotion.value < 0.75)) {
       dismissPlayer();
     } else {
-      setState(() { draggingPlayer = false; playerDrag = 0; });
+      playerMotion.animateTo(1, duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic);
     }
   }
 
@@ -2701,30 +2752,26 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
                   HapticFeedback.mediumImpact();
                   showTrackDetails(files[index]);
                 },
-                onTap: () async {
-                  await selectAndPlayTrack(index);
-                  if (mounted) {
-                    // A transient, partially saved filter must never make the
-                    // song library appear wiped when this player closes.
-                    if (query.isNotEmpty || favoritesOnly || activePlaylist != null || libraryPlaylistsPage) {
-                      setState(() {
-                        query = ''; favoritesOnly = false; activePlaylist = null;
-                        libraryPlaylistsPage = false;
-                      });
-                      searchController.clear();
-                    }
-                    // When selecting the final row, the list may have been
-                    // scrolled beyond the newly laid-out viewport. Keep it
-                    // genuinely visible when the fullscreen player closes.
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted && libraryScroll.hasClients) {
-                        final max = libraryScroll.position.maxScrollExtent;
-                        final target = libraryScroll.offset.clamp(0.0, max).toDouble();
-                        if (libraryScroll.offset != target) libraryScroll.jumpTo(target);
-                      }
+                onTap: () {
+                  final selectedPath = files[index];
+                  final epoch = ++_selectionEpoch;
+                  // Navigate first. Native DSP/metadata awaits must never decide
+                  // when the player is presented or replace Library content.
+                  if (query.isNotEmpty || favoritesOnly || activePlaylist != null || libraryPlaylistsPage) {
+                    setState(() {
+                      query = ''; favoritesOnly = false; activePlaylist = null;
+                      libraryPlaylistsPage = false;
                     });
-                    showPlayer();
+                    searchController.clear();
                   }
+                  final selectedIndex = files.indexOf(selectedPath);
+                  if (selectedIndex < 0) return;
+                  setState(() => currentIndex = selectedIndex);
+                  showPlayer();
+                  () async {
+                    if (selectedIndex < 0 || epoch != _selectionEpoch) return;
+                    await selectAndPlayTrack(selectedIndex);
+                  }();
                 },
               ),
               ]);
@@ -2732,7 +2779,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
         ])))),
         if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(
           ignoring: !libraryHome,
-          child: Opacity(opacity: libraryHome || dismissingPlayer ? 1.0 : 0.0,
+          child: Opacity(opacity: libraryHome || playerMotion.value < 0.15 ? 1.0 : 0.0,
             child: ColoredBox(
           color: GoogleLetterPalette.cream, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -2740,9 +2787,12 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           onVerticalDragUpdate: updateMiniSwipe,
           onVerticalDragEnd: finishMiniSwipe,
           onVerticalDragCancel: () {
-            if (draggingPlayer) setState(() { draggingPlayer = false; playerDrag = 0; });
+            _playerGestureStarted = false;
+            draggingPlayer = false;
+            if (!libraryHome) dismissPlayer();
           },
           child: AnimatedContainer(
+            key: miniPlayerPositionKey,
             duration: const Duration(milliseconds: 240),
             margin: EdgeInsets.zero,
             decoration: const BoxDecoration(color: GoogleLetterPalette.blue,
@@ -2821,14 +2871,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
           children: [
           SizedBox(height: math.max(8.0, viewport.maxHeight * 0.015)),
           SizedBox(height: math.min(viewport.maxHeight * 0.46, 410),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
-              onVerticalDragUpdate: (details) => setState(() => playerDrag =
-                (playerDrag + details.delta.dy).clamp(0.0, _collapsedPlayerOffset()).toDouble()),
-              onVerticalDragEnd: finishPlayerDrag,
-              onVerticalDragCancel: () => setState(() => draggingPlayer = false),
-              child: Center(child: LayoutBuilder(builder: (_, bounds) {
+            child: Center(child: LayoutBuilder(builder: (_, bounds) {
             final side = math.max(0.0, math.min(bounds.maxWidth, bounds.maxHeight));
             if (currentIndex < 0 || currentIndex >= files.length) {
               return SizedBox.square(dimension: side, child: const ColoredBox(
@@ -2839,7 +2882,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
               key: ValueKey(path), trackName: displayName(path),
               metadata: metadataFor(path), embeddedArtwork: embeddedArt[path],
               onSave: (data) => saveTrackMetadata(path, data)));
-          })))),
+          }))),
           const SizedBox(height: 14),
           Row(children: [
             Expanded(child: SizedBox(height: 43, child: ScrollingTrackTitle(text: title, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: GoogleLetterPalette.ink)))),
@@ -2958,49 +3001,27 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
       IgnorePointer(ignoring: !libraryHome,
         child: RepaintBoundary(child: buildLibrary())),
       if (!libraryHome)
-        TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: playerDrag.clamp(0.0, _collapsedPlayerOffset()).toDouble()),
-          duration: draggingPlayer ? Duration.zero : const Duration(milliseconds: 310),
-          curve: Curves.easeOutCubic,
-          onEnd: () {
-            if (mounted && dismissingPlayer) {
-              setState(() {
-                libraryHome = true;
-                playerDrag = 0;
-                dismissingPlayer = false;
-              });
-            }
-          },
-          builder: (context, actualOffset, _) {
-            final progress = (1 - actualOffset / _collapsedPlayerOffset())
-                .clamp(0.0, 1.0).toDouble();
-            // Backdrop blur and player are now derived from the SAME
-            // pixel-position animation; no desynchronized grey sliver.
-            final blur = ((progress - 0.20) / 0.80).clamp(0.0, 1.0).toDouble();
-            return Stack(children: [
-              Positioned.fill(child: IgnorePointer(child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
-                child: const SizedBox.expand()))),
-              Opacity(opacity: dismissingPlayer
-                ? (progress / 0.12).clamp(0.0, 1.0).toDouble() : 1.0,
-                child: Transform.translate(offset: Offset(0, actualOffset),
+        Builder(builder: (context) {
+          final progress = playerMotion.value.clamp(0.0, 1.0).toDouble();
+          final actualOffset = (1.0 - progress) * _collapsedPlayerOffset();
+          final blur = ((progress - 0.20) / 0.80).clamp(0.0, 1.0).toDouble();
+          return Stack(children: [
+            Positioned.fill(child: IgnorePointer(child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
+              child: const SizedBox.expand()))),
+            Opacity(opacity: (progress / 0.15).clamp(0.0, 1.0).toDouble(),
+              child: Transform.translate(offset: Offset(0, actualOffset),
               child: ClipRRect(borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(20)), child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
-                onVerticalDragStart: (_) => setState(() => draggingPlayer = true),
-                onVerticalDragUpdate: (details) => setState(() => playerDrag =
-                  (playerDrag + details.delta.dy).clamp(0.0, _collapsedPlayerOffset()).toDouble()),
+                onVerticalDragStart: startPlayerDrag,
+                onVerticalDragUpdate: updatePlayerDrag,
                 onVerticalDragEnd: finishPlayerDrag,
-                onVerticalDragCancel: () => setState(() { draggingPlayer = false; }),
-                child: Stack(children: [
-                  buildPlayer(expansion: progress),
-                  // No duplicate mini-player overlay: the persistent footer
-                  // beneath this page is the sole compact visual source.
-                ]),
+                onVerticalDragCancel: cancelPlayerDrag,
+                child: buildPlayer(expansion: progress),
               )))),
-            ]);
-          },
-        ),
+          ]);
+        }),
     ]));
   }
 }

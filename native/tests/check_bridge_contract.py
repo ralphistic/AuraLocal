@@ -32,10 +32,10 @@ require("LiveWaveformPainter" in dart and "installTap(onBus:" in graph and
         "waveform()" in graph,
         "Live waveform samples come from native audio output")
 require("return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [" in dart and
-        "TweenAnimationBuilder<double>(" in dart and
+        "AnimationController(vsync: this" in dart and
         "Transform.translate(offset: Offset(0, actualOffset)" in dart and
         "buildPlayer(expansion: progress)" in dart and "if (!libraryHome)" in dart,
-        "The actual mini-player surface expands and collapses with finger-tracked motion")
+        "Player follows thumb via a single explicitly controlled animation")
 require("source.scheduleSegment(file" in graph and "source.play()" in graph and
         "engine.connect(equalizer, to: timePitch" in graph,
         "FLAC runs through the existing Apple TimePitch graph")
@@ -82,7 +82,7 @@ require("Widget dragOnlySlider(" in dart and "onHorizontalDragUpdate" in dart an
         "Pitch slider supports drag-only adjustments, double-tap reset and precision wheel")
 require("startMiniSwipe()" in dart and "finishMiniSwipe" in dart and
         "child: Stack(children: [" in dart and "_collapsedPlayerOffset()" in dart and
-        "TweenAnimationBuilder<double>" in dart and "if (!libraryHome)" in dart,
+        "AnimationController(vsync: this" in dart and "if (!libraryHome)" in dart,
         "Swipe-up opens the same yellow player and returns to its mini-player position")
 require("curve.quadraticBezierTo" in dart and "canvas.drawPath(curve, paint)" in dart,
         "Live EQ is rendered as a single responsive frequency contour")
@@ -177,7 +177,7 @@ require("Color.lerp(GoogleLetterPalette.blue" in dart and
 
 require("onVerticalDragStart: (_) => startMiniSwipe()" in dart and
         "ignoring: !libraryHome" in dart and
-        "opacity: libraryHome || dismissingPlayer ? 1.0 : 0.0" in dart and
+        "opacity: libraryHome || playerMotion.value < 0.15 ? 1.0 : 0.0" in dart and
         "if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(" in dart,
         "MiniPlayer recognizer remains mounted throughout opening swipe")
 require("math.exp(-dt / responseTime)" in dart and
@@ -194,10 +194,11 @@ require("onTap: showOutputPicker" in dart and
 require("test/blurred_surfaces_test.dart" in workflow,
         "Finger tracking and backdrop blur are covered by Flutter widget tests")
 
-require("onEnd: () {" in dart and "if (mounted && dismissingPlayer)" in dart and
+require("playerMotion.addStatusListener" in dart and
+        "AnimationStatus.dismissed" in dart and
         "Future.delayed(const Duration(milliseconds: 355)" not in dart and
         "onVerticalDragEnd: finishPlayerDrag" in dart,
-        "Player collapse waits for actual animation completion; artwork and page can drag")
+        "Player collapse is completed by controller status, not independent timer")
 
 require("child: Material(color: widget.color" in surfaces,
         "ListTiles render ink on their nearest Material inside blurred sheets")
@@ -228,7 +229,17 @@ require("child: GestureDetector(" in dart and
         "onVerticalDragEnd: finishPlayerDrag" in dart,
         "Album art has its own full-width dismiss swipe recognizer")
 
-require("Opacity(opacity: dismissingPlayer" in dart and
-        "(progress / 0.12).clamp(0.0, 1.0)" in dart and
-        "opacity: libraryHome || dismissingPlayer ? 1.0 : 0.0" in dart,
-        "Player crossfades into existing footer without abrupt text replacement")
+require("playerMotion.value < 0.15" in dart and
+        "(progress / 0.15).clamp(0.0, 1.0)" in dart and
+        "miniPlayerPositionKey" in dart,
+        "Player uses one motion progress and measured footer anchor")
+
+require("final selectedPath = files[index];" in dart and
+        "setState(() => currentIndex = selectedIndex);" in dart and
+        "showPlayer();" in dart and
+        "await selectAndPlayTrack(selectedIndex);" in dart,
+        "Selecting last song opens player before asynchronous audio initialization")
+require("onVerticalDragStart: startPlayerDrag" in dart and
+        "onVerticalDragUpdate: updatePlayerDrag" in dart and
+        "AnimationController(vsync: this" in dart,
+        "Artwork and player use a single drag owner and frame-driven controller")
