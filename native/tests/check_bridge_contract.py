@@ -33,7 +33,7 @@ require("LiveWaveformPainter" in dart and "installTap(onBus:" in graph and
         "Live waveform samples come from native audio output")
 require("return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [" in dart and
         "AnimationController(vsync: this" in dart and
-        "Transform.translate(offset: Offset(0, actualOffset)" in dart and
+        "Positioned(top: top, left: 0, right: 0, bottom: 0" in dart and
         "buildPlayer(expansion: progress)" in dart and "if (!libraryHome)" in dart,
         "Player follows thumb via a single explicitly controlled animation")
 require("source.scheduleSegment(file" in graph and "source.play()" in graph and
@@ -176,7 +176,7 @@ require("Color.lerp(GoogleLetterPalette.blue" in dart and
         "Warm yellow becomes cream early and artwork and EQ text fade together")
 
 require("onVerticalDragStart: (_) => startMiniSwipe()" in dart and
-        "ignoring: !libraryHome" in dart and
+        "ignoring: !libraryHome && !_playerGestureStarted" in dart and
         "opacity: libraryHome || playerMotion.value < 0.15 ? 1.0 : 0.0" in dart and
         "if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(" in dart,
         "MiniPlayer recognizer remains mounted throughout opening swipe")
@@ -205,8 +205,8 @@ require("child: Material(color: widget.color" in surfaces,
 
 require("final ScrollController libraryScroll = ScrollController();" in dart and
         "controller: libraryScroll" in dart and
-        "IgnorePointer(ignoring: !libraryHome," in dart and
-        "child: RepaintBoundary(child: buildLibrary())" in dart,
+        "RepaintBoundary(child: buildLibrary())" in dart and
+        "IgnorePointer(ignoring: !libraryHome," not in dart,
         "Library scroll position is preserved, clamped, and cannot intercept player touches")
 require("BorderRadius.circular(26)" in surfaces and
         "BorderRadius.vertical(" not in surfaces,
@@ -218,7 +218,7 @@ require("if repeatMode == 2 && currentIndex >= 0" in bridge and
         "if repeatMode == 2 && delta > 0 { return currentIndex }" not in bridge,
         "Repeat-one only applies to natural track completion, not manual skip")
 
-require("child: RepaintBoundary(child: buildLibrary())" in dart and
+require("RepaintBoundary(child: buildLibrary())" in dart and
         "if (progress < 0.5)" not in dart and
         "child: const SizedBox.expand()" in dart,
         "Library repainting isolated and duplicated mini-preview removed from player")
@@ -230,7 +230,7 @@ require("child: GestureDetector(" in dart and
         "Album art has its own full-width dismiss swipe recognizer")
 
 require("playerMotion.value < 0.15" in dart and
-        "(progress / 0.15).clamp(0.0, 1.0)" in dart and
+        "Positioned(top: top, left: 0, right: 0, bottom: 0" in dart and
         "miniPlayerPositionKey" in dart,
         "Player uses one motion progress and measured footer anchor")
 
@@ -243,3 +243,10 @@ require("onVerticalDragStart: startPlayerDrag" in dart and
         "onVerticalDragUpdate: updatePlayerDrag" in dart and
         "AnimationController(vsync: this" in dart,
         "Artwork and player use a single drag owner and frame-driven controller")
+
+require("Positioned(top: top, left: 0, right: 0, bottom: 0" in dart and
+        "if (!libraryHome && playerMotion.value > 0.001)" in dart and
+        "IgnorePointer(ignoring: !libraryHome," not in dart,
+        "Fullscreen sheet hit area never blocks Library controls outside visible sheet")
+require("ignoring: !libraryHome && !_playerGestureStarted" in dart,
+        "MiniPlayer recognizer remains active throughout upward drag")

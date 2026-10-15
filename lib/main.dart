@@ -2778,7 +2778,7 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
             })),
         ])))),
         if (currentIndex >= 0 && currentIndex < files.length) IgnorePointer(
-          ignoring: !libraryHome,
+          ignoring: !libraryHome && !_playerGestureStarted,
           child: Opacity(opacity: libraryHome || playerMotion.value < 0.15 ? 1.0 : 0.0,
             child: ColoredBox(
           color: GoogleLetterPalette.cream, child: GestureDetector(
@@ -2998,28 +2998,29 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
     return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [
-      IgnorePointer(ignoring: !libraryHome,
-        child: RepaintBoundary(child: buildLibrary())),
-      if (!libraryHome)
+      RepaintBoundary(child: buildLibrary()),
+      if (!libraryHome && playerMotion.value > 0.001)
         Builder(builder: (context) {
           final progress = playerMotion.value.clamp(0.0, 1.0).toDouble();
-          final actualOffset = (1.0 - progress) * _collapsedPlayerOffset();
+          final top = (1.0 - progress) * _collapsedPlayerOffset();
           final blur = ((progress - 0.20) / 0.80).clamp(0.0, 1.0).toDouble();
+          // The sheet is positioned at its *visible* top, not translated
+          // inside a full-screen hit-test box. Everything above the sheet
+          // remains fully interactive in the Library.
           return Stack(children: [
             Positioned.fill(child: IgnorePointer(child: BackdropFilter(
               filter: ui.ImageFilter.blur(sigmaX: blur * 7, sigmaY: blur * 7),
               child: const SizedBox.expand()))),
-            Opacity(opacity: (progress / 0.15).clamp(0.0, 1.0).toDouble(),
-              child: Transform.translate(offset: Offset(0, actualOffset),
+            Positioned(top: top, left: 0, right: 0, bottom: 0,
               child: ClipRRect(borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(20)), child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
+                behavior: HitTestBehavior.opaque,
                 onVerticalDragStart: startPlayerDrag,
                 onVerticalDragUpdate: updatePlayerDrag,
                 onVerticalDragEnd: finishPlayerDrag,
                 onVerticalDragCancel: cancelPlayerDrag,
                 child: buildPlayer(expansion: progress),
-              )))),
+              ))),
           ]);
         }),
     ]));
