@@ -154,7 +154,7 @@ void main() {
       // online metadata is not available, so these are synthetic variants.
       final variant = selected == 0 ? 0 : _bulbyVariant++;
       final selectedPath = state.files[selected] as String;
-      final metadataKey = 'Music/${selectedPath.split('/').last}';
+      final metadataKey = state.manifestTrackKey(selectedPath) as String;
       state.setState(() {
         state.currentIndex = selected;
         state.trackMetadata.remove(metadataKey);
@@ -205,7 +205,12 @@ void main() {
       expect(tester.getSize(find.byType(ListView).first).height, greaterThan(100));
       // Identify which metadata configuration first triggers a render error.
       // Avoid silently attributing a failure to the wrong configuration.
-      expect(tester.takeException(), isNull, reason: 'Bulby metadata variant $variant');
+      final layoutError = tester.takeException();
+      if (layoutError != null) {
+        debugPrint('LAYOUT FAILURE variant=$variant error=$layoutError');
+        debugDumpRenderTree();
+      }
+      expect(layoutError, isNull, reason: 'Bulby metadata variant $variant');
     }
   });
 }
