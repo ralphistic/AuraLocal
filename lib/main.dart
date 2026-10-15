@@ -59,6 +59,7 @@ class _ScrollingTrackTitleState extends State<ScrollingTrackTitle> with TickerPr
     return ClipRect(child: AnimatedBuilder(animation: motion, builder: (_, __) =>
       Transform.translate(offset: Offset(-distance * motion.value, 0),
         child: OverflowBox(alignment: Alignment.centerLeft, minWidth: 0, maxWidth: double.infinity,
+          minHeight: 0, maxHeight: 28,
           child: SizedBox(width: textWidth + 16, child: Text(widget.text, maxLines: 1, softWrap: false, overflow: TextOverflow.visible, style: style))))));
   });
 }
