@@ -167,6 +167,23 @@ void main() {
       expect(find.text('3 songs'), findsOneWidget);
       expect(find.byTooltip('Song options'), findsNWidgets(3));
       expect(tester.takeException(), isNull);
+      // Reproduce the user's recovery path: tap an invisible-but-interactive
+      // library row, open the player, change to an unaffected track, collapse.
+      state.showPlayer();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      state.setState(() => state.currentIndex = 1);
+      await tester.pump();
+      expect(find.byTooltip('Minimize player'), findsOneWidget);
+      await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(state.libraryHome, isTrue);
+      expect(find.text('3 songs'), findsOneWidget);
+      expect(find.byTooltip('Song options'), findsNWidgets(3));
+      expect(tester.getSize(find.byType(ListView).first).height, greaterThan(100));
+      expect(tester.takeException(), isNull);
     }
   });
 }
