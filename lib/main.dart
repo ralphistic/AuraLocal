@@ -2741,7 +2741,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
               // The last-track iOS bug survives full subtree recreation, so
               // avoid per-row retained raster layers instead.
               addRepaintBoundaries: false,
-              cacheExtent: files.length <= 20 ? 12000 : 700,
+              // Do not eagerly lay out the entire list far outside the viewport.
+              // In the failing video only the playing-row waveform survives
+              // at x=0, despite eight matching rows and zero scroll offset.
+              cacheExtent: 350,
               physics: const ClampingScrollPhysics(),
               itemCount: matches.length, itemBuilder: (_, row) {
               final index = matches[row];

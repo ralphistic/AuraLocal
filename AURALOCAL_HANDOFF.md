@@ -220,3 +220,6 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-15 CORRECTION: User says Build 191 video shows EXACT SAME failure, list only returns after changing song. Previous assistant incorrectly called it promising. Treat 191 as FAILED. Added diagnostic fields rows/filter/page to test whether orderedTrackIndices unexpectedly empties; do not assume visually reappearing rows after song switch means fix.
 
 - 2026-10-15 05:18 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+- 2026-10-15: Build 192 user video: failure persists; DIAG home=true motion=0.00 idx=0/8 rows=8 scroll=0 filter=false page=false. Header/search visible; waveform alone at far left. Song change idx=7/8 restores list. Data/filter/state ruled out. Build 193 experiment: remove excessive 12000px ListView cache extent, use 350px; preserve diagnostic overlay. Not yet confirmed.
+
+- 2026-10-15 05:30 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
