@@ -168,6 +168,24 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   bool diagnosticRecording = false;
   final List<Map<String, Object?>> diagnosticEvents = [];
   int diagnosticSequence = 0;
+  void diagnosticGeometry(String event) {
+    if (!diagnosticRecording || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !diagnosticRecording) return;
+      final mini = miniPlayerPositionKey.currentContext;
+      final box = mini != null && mini.mounted ? mini.findRenderObject() : null;
+      final miniRect = box is RenderBox && box.attached && box.hasSize
+          ? box.localToGlobal(Offset.zero) & box.size : null;
+      diagnostic(event, {
+        'viewportWidth': MediaQuery.sizeOf(context).width,
+        'viewportHeight': MediaQuery.sizeOf(context).height,
+        'miniTop': miniRect?.top, 'miniBottom': miniRect?.bottom,
+        'miniLeft': miniRect?.left, 'miniRight': miniRect?.right,
+        'fullPlayerOverlayExpected': !libraryHome && playerMotion.value > 0.02,
+        'libraryExpected': libraryHome || playerMotion.value < 0.99,
+      });
+    });
+  }
   void diagnostic(String event, [Map<String, Object?> extra = const {}]) {
     if (!diagnosticRecording) return;
     if (!mounted) return;
@@ -1200,6 +1218,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   void _completePlayerCollapse() {
     if (!mounted) return;
     diagnostic('collapse_complete_begin');
+    diagnosticGeometry('collapse_geometry');
     // Reconcile a stale retained ListView offset after the footer reappears.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !libraryScroll.hasClients) return;
@@ -1243,6 +1262,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
 
   void showPlayer() {
     diagnostic('show_player');
+    diagnosticGeometry('show_player_geometry');
     if (!mounted) return;
     _collapsedPlayerOffset();
     setState(() { libraryHome = false; dismissingPlayer = false; draggingPlayer = false; });
@@ -2881,6 +2901,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
                   showTrackDetails(files[index]);
                 },
                 onTap: () {
+                  diagnostic('library_row_tap', {'row': row, 'selectedIndex': index});
                   final selectedPath = files[index];
                   final epoch = ++_selectionEpoch;
                   // Navigate first. Native DSP/metadata awaits must never decide
@@ -2934,7 +2955,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
               child: Icon(Icons.graphic_eq_rounded, size: 24)),
             title: ScrollingTrackTitle(text: title, style: const TextStyle(
               fontWeight: FontWeight.w800, color: Color(0xFF161515))),
-            onTap: showPlayer,
+            onTap: () { diagnostic('mini_player_tap'); showPlayer(); },
             trailing: IconButton(
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 180),
                 child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
