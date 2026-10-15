@@ -207,7 +207,7 @@ require("child: Material(color: widget.color" in surfaces,
 require("final ScrollController libraryScroll = ScrollController();" in dart and
         "controller: libraryScroll" in dart and
         "RepaintBoundary(child: buildLibrary())" not in dart and
-        "      buildLibrary()," in dart and
+        "if (libraryHome || playerMotion.value < 0.99) buildLibrary()," in dart and
         "IgnorePointer(ignoring: !libraryHome," not in dart,
         "Library scroll position is preserved, clamped, and cannot intercept player touches")
 require("BorderRadius.circular(26)" in surfaces and
