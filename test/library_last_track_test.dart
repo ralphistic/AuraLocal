@@ -187,8 +187,8 @@ void main() {
       expect(find.text('3 songs'), findsOneWidget);
       expect(find.byTooltip('Song options'), findsNWidgets(3));
       expect(tester.takeException(), isNull);
-      // Reproduce the user's recovery path: tap an invisible-but-interactive
-      // library row, open the player, change to an unaffected track, collapse.
+      // Recovery path reported by user: blank rows do NOT respond; switch
+      // tracks with full-player controls, then collapse to restore the list.
       state.showPlayer();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
@@ -203,7 +203,9 @@ void main() {
       expect(find.text('3 songs'), findsOneWidget);
       expect(find.byTooltip('Song options'), findsNWidgets(3));
       expect(tester.getSize(find.byType(ListView).first).height, greaterThan(100));
-      expect(tester.takeException(), isNull);
+      // Identify which metadata configuration first triggers a render error.
+      // Avoid silently attributing a failure to the wrong configuration.
+      expect(tester.takeException(), isNull, reason: 'Bulby metadata variant $variant');
     }
   });
 }
