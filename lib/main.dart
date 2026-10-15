@@ -2727,6 +2727,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
           : ListView.builder(primary: false,
               controller: libraryScroll,
               key: const PageStorageKey<String>('persistent-song-library'),
+              // Keep row glyphs, artwork, and controls in the same paint layer.
+              // The last-track iOS bug survives full subtree recreation, so
+              // avoid per-row retained raster layers instead.
+              addRepaintBoundaries: false,
               cacheExtent: files.length <= 20 ? 12000 : 700,
               physics: const ClampingScrollPhysics(),
               itemCount: matches.length, itemBuilder: (_, row) {
