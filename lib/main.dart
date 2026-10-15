@@ -3086,6 +3086,18 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
               )))),
           ]);
         }),
+      // Temporary on-device diagnostic: remains visible even if the library
+      // or player paints incorrectly. Remove after root cause is established.
+      Positioned(top: MediaQuery.paddingOf(context).top + 3, left: 5,
+        child: IgnorePointer(child: DecoratedBox(
+          decoration: const BoxDecoration(color: Color(0xE9000000)),
+          child: Padding(padding: const EdgeInsets.all(5),
+            child: Text('DIAG home=$libraryHome motion=${playerMotion.value.toStringAsFixed(2)} '
+              'idx=$currentIndex/${files.length} '
+              'scroll=${libraryScroll.hasClients ? libraryScroll.offset.toStringAsFixed(0) : "none"}',
+              style: const TextStyle(color: Colors.yellow, fontSize: 10,
+                fontWeight: FontWeight.bold))))),
+      ),
     ]));
   }
 }
