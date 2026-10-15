@@ -247,7 +247,7 @@ require("onVerticalDragStart: startPlayerDrag" in dart and
         "Artwork and player use a single drag owner and frame-driven controller")
 
 require("Positioned(top: top, left: 0, right: 0," in dart and
-        "if (!libraryHome && playerMotion.value > 0.001)" in dart and
+        "if (!libraryHome && playerMotion.value > 0.02)" in dart and
         "IgnorePointer(ignoring: !libraryHome," not in dart,
         "Fullscreen sheet hit area never blocks Library controls outside visible sheet")
 require("ignoring: !libraryHome && !_playerGestureStarted" in dart,
