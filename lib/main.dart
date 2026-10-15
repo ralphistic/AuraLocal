@@ -113,7 +113,7 @@ class MusicPage extends StatefulWidget {
   State<MusicPage> createState() => _MusicPageState();
 }
 
-class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
+class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMixin {
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
   static const fileReferences = MethodChannel('auralocal/file_references');
   final files = <String>[];
@@ -2611,7 +2611,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
             suffixIcon: query.isNotEmpty ? IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded),
               onPressed: () { searchController.clear(); setState(() => query = ''); syncQueue(); }) : null),
         )))),
-        Expanded(child: Material(color: GoogleLetterPalette.cream,
+        Expanded(child: ColoredBox(color: GoogleLetterPalette.cream,
           child: libraryPlaylistsPage
             ? ListView(key: const ValueKey('playlist-directory'), children: [
           ListTile(leading: const Icon(Icons.add_circle_rounded),

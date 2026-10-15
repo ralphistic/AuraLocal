@@ -190,3 +190,5 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-14 diagnostic: Flutter seven-song widget test now runs and reveals library ListTile Material-ink assertion: song directory was inside an opaque ColoredBox hiding Material ink. Replace only that body ColoredBox with a same-color Material to give song rows correct paint surface. This is a real assertion, but is NOT confirmed to explain the iPhone missing rows. Keep gestures and audio unchanged; test on isolated branch.
 
 - 2026-10-15 02:02 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+
+- 2026-10-15 02:14 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
