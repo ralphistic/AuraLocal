@@ -107,6 +107,8 @@ void main() {
       // can hit the wrong surface and never open the player.
       state.setState(() => state.currentIndex = 0);
       state.showPlayer();
+      // First pump starts the animation ticker; the following pump advances it.
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.byTooltip('Minimize player'), findsOneWidget);
       await tester.tap(find.byTooltip('Minimize player'), warnIfMissed: false);
