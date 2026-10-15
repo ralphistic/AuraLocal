@@ -205,7 +205,8 @@ require("child: Material(color: widget.color" in surfaces,
 
 require("final ScrollController libraryScroll = ScrollController();" in dart and
         "controller: libraryScroll" in dart and
-        "RepaintBoundary(child: buildLibrary())" in dart and
+        "RepaintBoundary(child: buildLibrary())" not in dart and
+        "      buildLibrary()," in dart and
         "IgnorePointer(ignoring: !libraryHome," not in dart,
         "Library scroll position is preserved, clamped, and cannot intercept player touches")
 require("BorderRadius.circular(26)" in surfaces and
@@ -218,10 +219,10 @@ require("if repeatMode == 2 && currentIndex >= 0" in bridge and
         "if repeatMode == 2 && delta > 0 { return currentIndex }" not in bridge,
         "Repeat-one only applies to natural track completion, not manual skip")
 
-require("RepaintBoundary(child: buildLibrary())" in dart and
+require("RepaintBoundary(child: buildLibrary())" not in dart and
         "if (progress < 0.5)" not in dart and
         "child: const SizedBox.expand()" in dart,
-        "Library repainting isolated and duplicated mini-preview removed from player")
+        "Library remains live under player and duplicated mini-preview stays removed")
 require("SizedBox(height: 42, child: Padding(" in dart and
         "EdgeInsets.fromLTRB(16, 8, 16, 0)" in dart,
         "Fixed-height search navigation eliminates uneven lower gap")

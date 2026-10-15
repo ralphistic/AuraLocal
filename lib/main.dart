@@ -3033,7 +3033,9 @@ class _MusicPageState extends State<MusicPage> with SingleTickerProviderStateMix
     // Keep exactly one visible page, so a cancelled drag cannot leave a grey
     // full-screen overlay blocking the music library.
     return ColoredBox(color: GoogleLetterPalette.cream, child: Stack(children: [
-      RepaintBoundary(child: buildLibrary()),
+      // Keep Library text and rows live beneath the animated player layer.
+      // A retained raster layer can show dividers but lose glyphs on iOS.
+      buildLibrary(),
       if (!libraryHome && playerMotion.value > 0.001)
         Builder(builder: (context) {
           final progress = playerMotion.value.clamp(0.0, 1.0).toDouble();
