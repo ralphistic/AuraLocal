@@ -76,6 +76,18 @@ void main() {
     expect(find.text('Castle Boss Battle SMW Remaster'), findsWidgets);
     expect(find.byTooltip('Sort tracks'), findsOneWidget);
     expect(find.byTooltip('Song options'), findsNWidgets(8));
+    // Verify actual geometry, not just retained widget/state existence.
+    final list = find.byType(ListView).first;
+    final listSize = tester.getSize(list);
+    final listTop = tester.getTopLeft(list);
+    expect(listSize.width, greaterThan(300));
+    expect(listSize.height, greaterThan(100));
+    expect(listTop.dx, greaterThanOrEqualTo(0));
+    expect(listTop.dy, greaterThan(0));
+    final lastRow = find.text('Castle Boss Battle SMW Remaster');
+    await tester.ensureVisible(lastRow.first);
+    await tester.pump();
+    expect(tester.getSize(lastRow.first).width, greaterThan(0));
     expect(tester.takeException(), isNull);
   });
 }
