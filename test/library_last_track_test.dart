@@ -130,6 +130,12 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    final originalErrorHandler = FlutterError.onError;
+    FlutterError.onError = (details) {
+      debugPrint('CAPTURED FLUTTER ERROR: ${details.toString()}');
+      originalErrorHandler?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalErrorHandler);
     await tester.pumpWidget(const MaterialApp(home: app.MusicPage()));
     final state = tester.state(find.byType(app.MusicPage)) as dynamic;
     const castle = 'Castle Boss Battle SMW Remaster_12.wav';
