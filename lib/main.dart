@@ -117,7 +117,7 @@ class MusicPage extends StatefulWidget {
   State<MusicPage> createState() => _MusicPageState();
 }
 
-class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
+class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, WidgetsBindingObserver {
   static const nativeDsp = MethodChannel('auralocal/native_dsp');
   static const fileReferences = MethodChannel('auralocal/file_references');
   final files = <String>[];
@@ -269,8 +269,15 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
   bool tempoTouchMoved = false;
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    diagnostic('app_lifecycle', {'state': state.name});
+    if (state == AppLifecycleState.resumed) diagnosticGeometry('resume_geometry');
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     playerMotion = AnimationController(vsync: this, value: 0,
       duration: const Duration(milliseconds: 300));
     playerMotion.addListener(() {
@@ -316,6 +323,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     pollTimer?.cancel();
     transportHoldTimer?.cancel();
     dspWheelDebounce?.cancel();
