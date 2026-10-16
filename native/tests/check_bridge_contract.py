@@ -166,7 +166,7 @@ require("void showOutputPicker()" in dart and
         "Player routes audio through the genuine iOS output picker")
 require("hintText: 'Search'" in dart and
         "Color(0xFFFFFAEF)" in dart and
-        "EdgeInsets.fromLTRB(16, 11, 16, 2)" in dart,
+        "EdgeInsets.fromLTRB(16, 8, 16, 8)" in dart,
         "Search field has balanced top and bottom spacing")
 require("Key('aura-sheet-grab-zone')" in surfaces and
         "onVerticalDragUpdate: (details)" in surfaces and
@@ -226,7 +226,7 @@ require("RepaintBoundary(child: buildLibrary())" not in dart and
         "child: const SizedBox.expand()" in dart,
         "Library remains live under player and duplicated mini-preview stays removed")
 require("SizedBox(height: 42, child: Padding(" in dart and
-        "EdgeInsets.fromLTRB(16, 11, 16, 2)" in dart,
+        "EdgeInsets.fromLTRB(16, 8, 16, 8)" in dart,
         "Fixed-height navigation and symmetrical search spacing")
 require("child: GestureDetector(" in dart and
         "onVerticalDragEnd: finishPlayerDrag" in dart,

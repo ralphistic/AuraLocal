@@ -1484,8 +1484,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             _settingsOption(label: 'Edit Metadata',
               icon: Icons.description_rounded,
               accent: GoogleLetterPalette.red,
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(sheet);
+                await probeEmbeddedArt(path);
+                if (!mounted) return;
                 showAuraSheet<void>(context: context,
                   isScrollControlled: true,
                   backgroundColor: GoogleLetterPalette.cream,
@@ -1495,7 +1497,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                       SizedBox(height: 280, child: Center(child: AspectRatio(
                         aspectRatio: 1, child: ArtworkFlipCard(
                           trackName: displayName(path), metadata: metadataFor(path),
-                          directEditorAccess: true,
+                          directEditorAccess: true, embeddedArtwork: embeddedArt[path],
                           onSave: (data) => saveTrackMetadata(path, data))))),
                       const Text('Tap artwork to add or search metadata.'),
                     ]))));
@@ -2717,7 +2719,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       body: SafeArea(bottom: false, child: Column(children: [
         // No colored stripe: clean mustard header against cream library.
         ColoredBox(color: GoogleLetterPalette.cream,
-          child: Padding(padding: const EdgeInsets.fromLTRB(16, 11, 16, 2),
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: SizedBox(height: 46, child: TextField(
           style: const TextStyle(fontSize: 14, color: GoogleLetterPalette.ink,
             fontWeight: FontWeight.w700),
@@ -3257,33 +3259,24 @@ class _ChunkyTransportPainter extends CustomPainter {
         ..lineTo(25.5, 7.5)
         ..moveTo(22, 3.8)..lineTo(25.5, 7.5)..lineTo(22, 11.2);
       canvas.drawPath(path, paint);
-    } else if (kind == 3) {
-      final ring = Path()..addArc(const Rect.fromLTWH(3, 3, 23, 23), -math.pi / 2.7, math.pi * 1.78);
-      canvas.drawPath(ring, paint);
-      final arrow = Path()..moveTo(20.5, 3.7)..lineTo(26, 4.1)..lineTo(24.7, 9.6);
-      canvas.drawPath(arrow, paint);
     } else {
-      final loop = Path()
-        ..moveTo(6, 10)..lineTo(6, 9)
-        ..quadraticBezierTo(6, 5.5, 10, 5.5)
-        ..lineTo(21, 5.5)
-        ..quadraticBezierTo(24.5, 5.5, 24.5, 9)
-        ..lineTo(24.5, 14)
-        ..moveTo(20.7, 10.5)..lineTo(24.5, 14)..lineTo(27, 10.5)
-        ..moveTo(23, 19)..lineTo(23, 20)
-        ..quadraticBezierTo(23, 24.2, 19.2, 24.2)
-        ..lineTo(8, 24.2)
-        ..quadraticBezierTo(4.5, 24.2, 4.5, 20.7)
-        ..lineTo(4.5, 15)
-        ..moveTo(1.5, 18.5)..lineTo(4.5, 15)..lineTo(8, 18.5);
-      canvas.drawPath(loop, paint);
+      // All repeat states share a fully circular 360-degree silhouette.
+      // The arrow and central numeral distinguish off / all / one.
+      final ring = Path()..addOval(const Rect.fromLTWH(3.5, 3.5, 22, 22));
+      canvas.drawPath(ring, paint);
+      final arrow = Path()
+        ..moveTo(20.8, 3.2)..lineTo(26.5, 4.5)..lineTo(24.8, 10);
+      canvas.drawPath(arrow, paint);
       if (kind == 2) {
-        final textPainter = TextPainter(
+        final numeral = TextPainter(
           text: TextSpan(text: '1', style: TextStyle(color: color,
-            fontSize: 14, fontWeight: FontWeight.w900)),
+            fontSize: 15, fontWeight: FontWeight.w900)),
           textDirection: TextDirection.ltr)..layout();
-        textPainter.paint(canvas, Offset(14.5 - textPainter.width / 2,
-          14.8 - textPainter.height / 2));
+        numeral.paint(canvas, Offset(14.5 - numeral.width / 2,
+          14.5 - numeral.height / 2));
+      } else if (kind == 3) {
+        canvas.drawLine(const Offset(8.6, 20.4),
+          const Offset(20.4, 8.6), paint);
       }
     }
     canvas.restore();

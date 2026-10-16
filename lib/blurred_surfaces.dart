@@ -118,7 +118,10 @@ class _AuraDraggableSheetState extends State<_AuraDraggableSheet> {
                         decoration: BoxDecoration(
                           color: GoogleLetterPalette.creamDivider,
                           borderRadius: BorderRadius.circular(6)))))),
-                  Flexible(fit: FlexFit.loose, child: widget.builder(context)),
+                  Flexible(fit: FlexFit.loose, child: Align(
+                    alignment: Alignment.topCenter,
+                    widthFactor: 1,
+                    child: widget.builder(context))),
                 ])))))),
     );
   }
