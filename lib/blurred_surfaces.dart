@@ -99,7 +99,7 @@ class _AuraDraggableSheetState extends State<_AuraDraggableSheet> {
         child: Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 0),
           child: ClipRRect(borderRadius: BorderRadius.circular(26),
             child: ConstrainedBox(constraints: BoxConstraints(
-                maxHeight: height * 0.94),
+                maxHeight: height * 0.78),
               // ListTile ink and highlights require an actual Material surface
               // at the sheet background, not a ColoredBox in front of it.
               child: Material(color: widget.color,
@@ -118,10 +118,7 @@ class _AuraDraggableSheetState extends State<_AuraDraggableSheet> {
                         decoration: BoxDecoration(
                           color: GoogleLetterPalette.creamDivider,
                           borderRadius: BorderRadius.circular(6)))))),
-                  Flexible(fit: FlexFit.loose, child: Align(
-                    alignment: Alignment.topCenter,
-                    widthFactor: 1,
-                    child: widget.builder(context))),
+                  Flexible(fit: FlexFit.loose, child: widget.builder(context)),
                 ])))))),
     );
   }
