@@ -20,7 +20,7 @@ Future<T?> showAuraSheet<T>({
   transitionDuration: const Duration(milliseconds: 260),
   pageBuilder: (page, animation, secondary) => SafeArea(
     top: false,
-    child: Align(alignment: Alignment.bottomCenter,
+    child: Align(alignment: Alignment.center,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(page).bottom),
@@ -99,7 +99,7 @@ class _AuraDraggableSheetState extends State<_AuraDraggableSheet> {
         child: Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 0),
           child: ClipRRect(borderRadius: BorderRadius.circular(26),
             child: ConstrainedBox(constraints: BoxConstraints(
-                maxHeight: height * 0.78),
+                maxHeight: height * 0.94),
               // ListTile ink and highlights require an actual Material surface
               // at the sheet background, not a ColoredBox in front of it.
               child: Material(color: widget.color,
