@@ -98,10 +98,10 @@ require("songArtworkThumbnail(files[index])" in dart and
         "Offset(x, size.height - height)" in dart,
         "Tracklist artwork thumbnails and upward-only playing spectrum bars")
 require("key: const PageStorageKey<String>('persistent-song-library')" in dart and
-        "cacheExtent: files.length <= 20" in dart and
+        "cacheExtent: 350" in dart and
         "libraryRenderEpoch++" not in dart and
         "libraryPaintEpoch" in dart,
-        "Song list has persistent scroll storage and caches small libraries; paint remount is tracked separately")
+        "Song list has persistent scroll storage and bounded caching; paint remount is tracked separately")
 require("final blur = ((progress - 0.20) / 0.80)" in dart and
         "color: GoogleLetterPalette.cream.withValues(alpha: blur * 0.12)" in dart and
         "Positioned.fill(child: IgnorePointer(child: BackdropFilter(" not in dart,
