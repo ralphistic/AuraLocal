@@ -3140,7 +3140,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             ]),
           ]),
           const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Wrap(alignment: WrapAlignment.center, spacing: 4, runSpacing: 2, children: [
             TextButton.icon(onPressed: showLibrary, icon: const Icon(Icons.library_music_rounded),
               label: const Text('Library')),
             TextButton.icon(onPressed: showQueue, icon: const Icon(Icons.queue_music_rounded),
