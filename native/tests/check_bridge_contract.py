@@ -166,8 +166,8 @@ require("void showOutputPicker()" in dart and
         "Player routes audio through the genuine iOS output picker")
 require("hintText: 'Search'" in dart and
         "Color(0xFFFFFAEF)" in dart and
-        "EdgeInsets.fromLTRB(16, 8, 16, 0)" in dart,
-        "Search field matches the library surface with no lower gap")
+        "EdgeInsets.fromLTRB(16, 5, 16, 5)" in dart,
+        "Search field has balanced top and bottom spacing")
 require("Key('aura-sheet-grab-zone')" in surfaces and
         "onVerticalDragUpdate: (details)" in surfaces and
         "distance > 110" in surfaces,
