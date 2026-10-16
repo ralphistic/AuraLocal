@@ -20,7 +20,7 @@ Future<T?> showAuraSheet<T>({
   transitionDuration: const Duration(milliseconds: 260),
   pageBuilder: (page, animation, secondary) => SafeArea(
     top: false,
-    child: Align(alignment: Alignment.bottomCenter,
+    child: Align(alignment: Alignment.center,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(page).bottom),

@@ -1495,6 +1495,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                       SizedBox(height: 280, child: Center(child: AspectRatio(
                         aspectRatio: 1, child: ArtworkFlipCard(
                           trackName: displayName(path), metadata: metadataFor(path),
+                          directEditorAccess: true,
                           onSave: (data) => saveTrackMetadata(path, data))))),
                       const Text('Tap artwork to add or search metadata.'),
                     ]))));
@@ -2716,7 +2717,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       body: SafeArea(bottom: false, child: Column(children: [
         // No colored stripe: clean mustard header against cream library.
         ColoredBox(color: GoogleLetterPalette.cream,
-          child: Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 5, 16, 5),
             child: SizedBox(height: 46, child: TextField(
           style: const TextStyle(fontSize: 14, color: GoogleLetterPalette.ink,
             fontWeight: FontWeight.w700),
@@ -3002,10 +3003,6 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
         titleSpacing: 0,
         actions: [
-          Opacity(opacity: ((stage - 0.32) / 0.53).clamp(0.0, 1.0).toDouble(),
-            child: TextButton(onPressed: showEqualizer,
-              child: const Text('EQ', style: TextStyle(color: GoogleLetterPalette.ink,
-                fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 0.8)))),
           PopupMenuButton<String>(tooltip: 'More player actions',
             onSelected: (value) {
               if (value == 'queue') showQueue();
@@ -3067,7 +3064,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
               child: Text(
                 (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty
                   ? metadataFor(files[currentIndex])['artist']!.trim()
-                  : 'Unknown artist',
+                  : '',
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700,
                   color: GoogleLetterPalette.creamText, fontSize: 15))),
@@ -3086,7 +3083,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: GoogleLetterPalette.creamText)))),
           ),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: dragOnlySlider(value: effectivePosition.clamp(0.0, maximum).toDouble(),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: SliderTheme(data: Theme.of(context).sliderTheme.copyWith(activeTrackColor: GoogleLetterPalette.red, thumbColor: GoogleLetterPalette.red), child: dragOnlySlider(value: effectivePosition.clamp(0.0, maximum).toDouble(),
             min: 0, max: maximum,
             onChanged: (value) => setState(() {
               draggingSeek = true; scrubPosition = value;
@@ -3094,7 +3091,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             onChangeEnd: (value) async {
               await seekTo(value);
               if (mounted) setState(() { draggingSeek = false; scrubPosition = null; });
-            })),
+            }))),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(clock(effectivePosition), style: TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.68))),
             Text(clock(durationSeconds), style: TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.68))),
@@ -3111,14 +3108,14 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
               onLongPressStart: currentIndex < 0 ? null : (_) => startTransportHold(-1),
               onLongPressEnd: (_) => stopTransportHold(),
               onLongPressCancel: stopTransportHold,
-              child: const SizedBox(width: 52, height: 56,
-                child: Center(child: Icon(Icons.skip_previous_rounded, size: 43)))),
+              child: const SizedBox(width: 56, height: 60,
+                child: Center(child: Icon(Icons.skip_previous_rounded, size: 50)))),
             IconButton(onPressed: files.isEmpty ? import : togglePlayback,
               style: IconButton.styleFrom(foregroundColor: GoogleLetterPalette.ink),
               icon: AnimatedSwitcher(duration: const Duration(milliseconds: 160),
                 transitionBuilder: (child, animation) =>
                   ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
-                child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, key: ValueKey(isPlaying), size: 49))),
+                child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, key: ValueKey(isPlaying), size: 57))),
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: files.isEmpty ? null : () => skipTrack(1),
@@ -3127,14 +3124,14 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
               onLongPressCancel: stopTransportHold,
               child: Semantics(label: 'Next track; hold to scrub forward',
                 button: true,
-                child: const SizedBox(width: 52, height: 56,
-                  child: Center(child: Icon(Icons.skip_next_rounded, size: 43))))),
+                child: const SizedBox(width: 56, height: 60,
+                  child: Center(child: Icon(Icons.skip_next_rounded, size: 50))))),
             Column(mainAxisSize: MainAxisSize.min, children: [
               IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? GoogleLetterPalette.creamText : GoogleLetterPalette.red,
                 onPressed: () async {
                   setState(() => repeat = (repeat + 1) % 3);
                   await syncQueue(); await saveLibrary();
-                }, icon: ChunkyRepeatIcon(one: repeat == 2)),
+                }, icon: CircleAvatar(radius: 20, backgroundColor: GoogleLetterPalette.creamDivider, child: ChunkyRepeatIcon(one: repeat == 2))),
               Text(['OFF', 'ALL', 'ONE'][repeat],
                 style: const TextStyle(fontSize: 10, color: GoogleLetterPalette.creamText)),
             ]),
@@ -3151,8 +3148,12 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                 onPressed: () => addToPlaylist(files[currentIndex])),
           ]),
           const SizedBox(height: 4),
-          TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune_rounded),
-            label: const Text('Pitch and tempo')),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune_rounded),
+              label: const Text('Pitch and tempo')),
+            TextButton.icon(onPressed: showEqualizer, icon: const Icon(Icons.equalizer_rounded),
+              label: const Text('EQ')),
+          ]),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],

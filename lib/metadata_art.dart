@@ -16,8 +16,9 @@ class ArtworkFlipCard extends StatefulWidget {
   final Map<String, String> metadata;
   final MetadataSave onSave;
   final Uint8List? embeddedArtwork;
+  final bool directEditorAccess;
   const ArtworkFlipCard({super.key, required this.trackName, required this.metadata,
-    required this.onSave, this.embeddedArtwork});
+    required this.onSave, this.embeddedArtwork, this.directEditorAccess = false});
   @override
   State<ArtworkFlipCard> createState() => _ArtworkFlipCardState();
 }
@@ -52,9 +53,9 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
   }
 
   void toggle() {
-    if (widget.embeddedArtwork != null ||
+    if (!widget.directEditorAccess && (widget.embeddedArtwork != null ||
         (widget.metadata['artworkUrl'] ?? '').isNotEmpty ||
-        (widget.metadata['artworkData'] ?? '').isNotEmpty) {
+        (widget.metadata['artworkData'] ?? '').isNotEmpty)) {
       openEditor(context);
       return;
     }
@@ -68,8 +69,8 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
       final rotation = math.pi * t;
       final rear = rotation > math.pi / 2;
       return GestureDetector(
-        onTap: hasArtwork ? null : toggle,
-        onLongPress: hasArtwork ? confirmEdit : null,
+        onTap: widget.directEditorAccess || !hasArtwork ? toggle : null,
+        onLongPress: widget.directEditorAccess ? null : (hasArtwork ? confirmEdit : null),
         child: Transform(transform: Matrix4.identity()..setEntry(3, 2, 0.0012)..rotateY(rotation),
           alignment: Alignment.center, child: Transform(
             alignment: Alignment.center,
