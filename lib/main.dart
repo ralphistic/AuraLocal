@@ -3140,7 +3140,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                 onPressed: () => addToPlaylist(files[currentIndex])),
           ]),
           const SizedBox(height: 4),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Wrap(alignment: WrapAlignment.center, spacing: 0, runSpacing: 0, children: [
             TextButton.icon(onPressed: showAudioSettings, icon: const Icon(Icons.tune_rounded),
               label: const Text('Pitch and tempo')),
             TextButton.icon(onPressed: showEqualizer, icon: const Icon(Icons.equalizer_rounded),
