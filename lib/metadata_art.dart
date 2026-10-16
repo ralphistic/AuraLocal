@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'blurred_surfaces.dart';
 import 'package:flutter/services.dart';
@@ -79,16 +80,23 @@ class _ArtworkFlipCardState extends State<ArtworkFlipCard> with SingleTickerProv
               child: DecoratedBox(
               decoration: const BoxDecoration(gradient: LinearGradient(
                 colors: [GoogleLetterPalette.blue, GoogleLetterPalette.red])),
-              child: rear ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Text('Add metadata?', style: TextStyle(color: Color(0xFF221A1B),
-                  fontSize: 21, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 18),
-                FilledButton(onPressed: () => openEditor(context), child: const Text('Enter manually')),
-                const SizedBox(height: 8),
-                FilledButton.tonal(onPressed: () => findOnline(context), child: const Text('Find online')),
-                const SizedBox(height: 14),
-                const Text('Tap to flip back', style: TextStyle(
-                  fontSize: 11, color: Color(0xFF221A1B))),
+              child: rear ? Stack(fit: StackFit.expand, children: [
+                if (hasArtwork) Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()..scale(-1.0, 1.0, 1.0),
+                  child: ImageFiltered(imageFilter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    child: _front())),
+                ColoredBox(color: Colors.black.withValues(alpha: hasArtwork ? 0.48 : 0),
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Text('Add metadata?', style: TextStyle(color: Colors.white,
+                    fontSize: 21, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 18),
+                  FilledButton(onPressed: () => openEditor(context), child: const Text('Enter manually')),
+                  const SizedBox(height: 8),
+                  FilledButton.tonal(onPressed: () => findOnline(context), child: const Text('Find online')),
+                  const SizedBox(height: 14),
+                  const Text('Tap to flip back', style: TextStyle(fontSize: 11, color: Colors.white)),
+                ])),
               ]) : _front(),
             )),
           )),

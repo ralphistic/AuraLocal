@@ -2717,7 +2717,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       body: SafeArea(bottom: false, child: Column(children: [
         // No colored stripe: clean mustard header against cream library.
         ColoredBox(color: GoogleLetterPalette.cream,
-          child: Padding(padding: const EdgeInsets.fromLTRB(16, 5, 16, 5),
+          child: Padding(padding: const EdgeInsets.fromLTRB(16, 11, 16, 2),
             child: SizedBox(height: 46, child: TextField(
           style: const TextStyle(fontSize: 14, color: GoogleLetterPalette.ink,
             fontWeight: FontWeight.w700),
@@ -3056,15 +3056,11 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                 icon: Icon(favorites.contains(files[currentIndex]) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   color: GoogleLetterPalette.red)),
           ]),
-          // Keep player geometry identical with and without tag metadata.
-          // Previously the entire artist row disappeared for untagged files,
-          // changing the full-player layout only for those tracks.
-          if (currentIndex >= 0 && currentIndex < files.length)
+          if (currentIndex >= 0 && currentIndex < files.length &&
+              (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty)
             Padding(padding: const EdgeInsets.only(top: 2, bottom: 6),
               child: Text(
-                (metadataFor(files[currentIndex])['artist'] ?? '').trim().isNotEmpty
-                  ? metadataFor(files[currentIndex])['artist']!.trim()
-                  : '',
+                metadataFor(files[currentIndex])['artist']!.trim(),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700,
                   color: GoogleLetterPalette.creamText, fontSize: 15))),
@@ -3097,7 +3093,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             Text(clock(durationSeconds), style: TextStyle(color: GoogleLetterPalette.creamText.withValues(alpha: 0.68))),
           ])),
           const SizedBox(height: 10),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
             IconButton(tooltip: 'Shuffle', color: shuffle ? GoogleLetterPalette.green : GoogleLetterPalette.creamText,
               onPressed: () async {
                 setState(() => shuffle = !shuffle);
@@ -3126,15 +3122,11 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                 button: true,
                 child: const SizedBox(width: 56, height: 60,
                   child: Center(child: Icon(Icons.skip_next_rounded, size: 50))))),
-            Column(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? GoogleLetterPalette.creamText : GoogleLetterPalette.red,
-                onPressed: () async {
-                  setState(() => repeat = (repeat + 1) % 3);
-                  await syncQueue(); await saveLibrary();
-                }, icon: CircleAvatar(radius: 20, backgroundColor: GoogleLetterPalette.creamDivider, child: ChunkyRepeatIcon(one: repeat == 2))),
-              Text(['OFF', 'ALL', 'ONE'][repeat],
-                style: const TextStyle(fontSize: 10, color: GoogleLetterPalette.creamText)),
-            ]),
+            IconButton(tooltip: 'Repeat mode', color: repeat == 0 ? GoogleLetterPalette.creamText : GoogleLetterPalette.red,
+              onPressed: () async {
+                setState(() => repeat = (repeat + 1) % 3);
+                await syncQueue(); await saveLibrary();
+              }, icon: ChunkyRepeatIcon(mode: repeat)),
           ]),
           const SizedBox(height: 12),
           Wrap(alignment: WrapAlignment.center, spacing: 4, runSpacing: 2, children: [
@@ -3231,14 +3223,14 @@ class ChunkyShuffleIcon extends StatelessWidget {
 }
 
 class ChunkyRepeatIcon extends StatelessWidget {
-  final bool one;
-  const ChunkyRepeatIcon({super.key, required this.one});
+  final int mode;
+  const ChunkyRepeatIcon({super.key, required this.mode});
   @override
   Widget build(BuildContext context) => CustomPaint(
     size: const Size(29, 29),
     painter: _ChunkyTransportPainter(
       color: IconTheme.of(context).color ?? GoogleLetterPalette.ink,
-      kind: one ? 2 : 1));
+      kind: mode == 2 ? 2 : mode == 0 ? 3 : 1));
 }
 
 class _ChunkyTransportPainter extends CustomPainter {
@@ -3265,6 +3257,11 @@ class _ChunkyTransportPainter extends CustomPainter {
         ..lineTo(25.5, 7.5)
         ..moveTo(22, 3.8)..lineTo(25.5, 7.5)..lineTo(22, 11.2);
       canvas.drawPath(path, paint);
+    } else if (kind == 3) {
+      final ring = Path()..addArc(const Rect.fromLTWH(3, 3, 23, 23), -math.pi / 2.7, math.pi * 1.78);
+      canvas.drawPath(ring, paint);
+      final arrow = Path()..moveTo(20.5, 3.7)..lineTo(26, 4.1)..lineTo(24.7, 9.6);
+      canvas.drawPath(arrow, paint);
     } else {
       final loop = Path()
         ..moveTo(6, 10)..lineTo(6, 9)
