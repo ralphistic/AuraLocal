@@ -226,8 +226,8 @@ require("RepaintBoundary(child: buildLibrary())" not in dart and
         "child: const SizedBox.expand()" in dart,
         "Library remains live under player and duplicated mini-preview stays removed")
 require("SizedBox(height: 42, child: Padding(" in dart and
-        "EdgeInsets.fromLTRB(16, 8, 16, 0)" in dart,
-        "Fixed-height search navigation eliminates uneven lower gap")
+        "EdgeInsets.fromLTRB(16, 5, 16, 5)" in dart,
+        "Fixed-height navigation and symmetrical search spacing")
 require("child: GestureDetector(" in dart and
         "onVerticalDragEnd: finishPlayerDrag" in dart,
         "Album art has its own full-width dismiss swipe recognizer")
