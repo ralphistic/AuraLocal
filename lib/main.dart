@@ -1458,6 +1458,64 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
     await saveTrackMetadata(path, {...metadataFor(path), 'title': renamed});
   }
 
+  Future<void> removeSongFromLibrary(String path) async {
+    final name = displayName(path);
+    final confirmed = await showAuraDialog<bool>(context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Remove song?'),
+        content: Text('Remove "$name" from AuraLocal? The audio file itself will not be deleted.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Remove song')),
+        ]));
+    if (confirmed != true || !mounted || !files.contains(path)) return;
+    final wasCurrent = currentIndex >= 0 &&
+      currentIndex < files.length && files[currentIndex] == path;
+    final previousPath = currentIndex >= 0 && currentIndex < files.length
+      ? files[currentIndex] : null;
+    if (wasCurrent) {
+      try { await nativeDsp.invokeMethod('stopFile'); } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      files.remove(path);
+      favorites.remove(path);
+      favorites.remove(manifestTrackKey(path));
+      for (final tracks in playlists.values) {
+        tracks.removeWhere((item) =>
+          item == path || item == manifestTrackKey(path));
+      }
+      manualQueue.removeWhere((item) =>
+        item == path || item == manifestTrackKey(path));
+      queuedPaths.remove(path);
+      originalNames.remove(path);
+      dateAdded.remove(path);
+      trackDurations.remove(path);
+      embeddedArt.remove(path);
+      localThumbnailBytes.remove(path);
+      trackMetadata.remove(manifestTrackKey(path));
+      songDSP.remove(path);
+      if (wasCurrent) {
+        currentIndex = -1;
+        isPlaying = false;
+        positionSeconds = 0;
+        durationSeconds = 0;
+      } else {
+        currentIndex = previousPath == null ? -1 : files.indexOf(previousPath);
+      }
+      if (files.isEmpty) {
+        manualQueueActive = false;
+        activePlaylist = null;
+      }
+    });
+    await syncQueue();
+    await saveLibrary();
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('"$name" removed from library')));
+  }
+
   void trackMenu(String path) {
     showBlurredActionSheet((sheet) => Padding(
         padding: const EdgeInsets.fromLTRB(15, 15, 15, 22),
@@ -1481,6 +1539,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
               icon: Icons.edit_rounded,
               accent: GoogleLetterPalette.blue,
               onTap: () { Navigator.pop(sheet); _renameTrack(path); }),
+            _settingsOption(label: 'Remove from Library',
+              icon: Icons.delete_outline_rounded,
+              accent: GoogleLetterPalette.red,
+              onTap: () { Navigator.pop(sheet); removeSongFromLibrary(path); }),
             _settingsOption(label: 'Edit Metadata',
               icon: Icons.description_rounded,
               accent: GoogleLetterPalette.red,
@@ -3194,21 +3256,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
               )))),
           ]);
         }),
-      // Temporary on-device diagnostic: remains visible even if the library
-      // or player paints incorrectly. Remove after root cause is established.
-      Positioned(top: MediaQuery.paddingOf(context).top + 3, left: 5,
-        child: IgnorePointer(child: DecoratedBox(
-          decoration: const BoxDecoration(color: Color(0xE9000000)),
-          child: Padding(padding: const EdgeInsets.all(5),
-            child: Text('DIAG home=$libraryHome motion=${playerMotion.value.toStringAsFixed(2)} '
-              'idx=$currentIndex/${files.length} '
-              'rows=${orderedTrackIndices().length} '
-              'scroll=${libraryScroll.hasClients ? libraryScroll.offset.toStringAsFixed(0) : "none"} '
-              'filter=${query.isNotEmpty || favoritesOnly || activePlaylist != null} '
-              'page=$libraryPlaylistsPage',
-              style: const TextStyle(color: Colors.yellow, fontSize: 10,
-                fontWeight: FontWeight.bold))))),
-      ),
+
     ]));
   }
 }
