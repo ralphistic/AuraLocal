@@ -126,6 +126,34 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
   final trackMetadata = <String, Map<String, String>>{};
   final embeddedArt = <String, Uint8List?>{};
   final syncedLyrics = <String, List<Map<String, dynamic>>>{};
+  Future<void> _lyricsWrite = Future<void>.value();
+  Future<void> persistLyrics() {
+    final snapshot = jsonEncode(syncedLyrics);
+    _lyricsWrite = _lyricsWrite.catchError((Object _) {}).then((_) async {
+      final docs = await getApplicationDocumentsDirectory();
+      final target = File('${docs.path}/auralocal-synced-lyrics.json');
+      final pending = File('${target.path}.pending');
+      await pending.writeAsString(snapshot, flush: true);
+      if (await target.exists()) await target.delete();
+      await pending.rename(target.path);
+    });
+    if (mounted) setState(() {});
+    return _lyricsWrite;
+  }
+  Future<void> restoreLyrics() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final file = File('${docs.path}/auralocal-synced-lyrics.json');
+    if (!await file.exists()) return;
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map) return;
+    for (final entry in decoded.entries) {
+      if (entry.key is! String || entry.value is! List) continue;
+      syncedLyrics[entry.key as String] = (entry.value as List).whereType<Map>()
+        .map((line) => <String, dynamic>{'text': '${line['text'] ?? ''}',
+          'time': line['time'] is num ? (line['time'] as num).toDouble() : 0.0}).toList();
+    }
+    if (mounted) setState(() {});
+  }
   final localThumbnailBytes = <String, Uint8List>{};
   final eqGains = List<double>.filled(10, 0);
   final customEqPresets = <String, List<double>>{};
@@ -855,6 +883,8 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       await updateNativePitchTempo();
       await applyNativeEQ();
       if (mounted) setState(() {});
+      // Restore dedicated lyrics storage after the library manifest.
+      await restoreLyrics();
       // Metadata probing never plays or interrupts a track.
       await loadMissingDurations();
     } catch (e) {
@@ -1531,7 +1561,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
   void showSyncedLyrics(String path) {
     final key = manifestTrackKey(path);
     final lines = syncedLyrics.putIfAbsent(key, () => <Map<String, dynamic>>[]);
-    final paste = TextEditingController();
+    final paste = TextEditingController(text: lines.map((line) => line['text']).join('\n'));
     var selected = 0;
     showAuraDialog<void>(context: context, builder: (dialog) =>
       StatefulBuilder(builder: (dialog, redraw) {
@@ -1544,10 +1574,13 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             Row(children: [
               const Expanded(child: Text('Synced lyrics', style:
                 TextStyle(fontSize: 21, fontWeight: FontWeight.bold))),
-              IconButton(tooltip: 'Close lyrics', onPressed: () => Navigator.pop(dialog),
+              IconButton(tooltip: 'Close lyrics', onPressed: () async {
+                await persistLyrics();
+                if (dialog.mounted) Navigator.pop(dialog);
+              },
                 icon: const Icon(Icons.close_rounded)),
             ]),
-            const Text('Paste lyrics one line at a time. Tap Sync at the moment each line starts. Select a line to fine-tune its timing.'),
+            const Text('Paste lyrics, select a line, then use the dedicated timing controls to replay and nudge its start. Each adjustment saves automatically.'),
             TextField(controller: paste, minLines: 2, maxLines: 4,
               decoration: const InputDecoration(hintText: 'Paste lyrics here')),
             Row(children: [
@@ -1560,7 +1593,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                     <String, dynamic>{'text': line, 'time': 0.0}));
                   selected = 0;
                 });
-                saveLibrary();
+                persistLyrics();
               }, child: const Text('Use pasted lyrics')),
               const Spacer(),
               Text(clock(positionSeconds)),
@@ -1581,31 +1614,51 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                       lines[i]['time'] = positionSeconds;
                       selected = (i + 1).clamp(0, lines.length - 1);
                     });
-                    saveLibrary();
+                    persistLyrics();
                   }),
               ))),
             if (lines.isNotEmpty) ...[
               Text('Fine tune: ${lines[selected]['text']}',
                 maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text('${(lines[selected]['time'] as num).toDouble().toStringAsFixed(3)} seconds',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                IconButton(tooltip: 'Previous lyric', onPressed: () => redraw(() =>
+                  selected = math.max(0, selected - 1)),
+                  icon: const Icon(Icons.skip_previous_rounded)),
+                TextButton.icon(onPressed: () async {
+                  await seekTo(math.max(0.0, (lines[selected]['time'] as num).toDouble() - 1.5));
+                  if (!isPlaying) await togglePlayback();
+                  redraw(() {});
+                }, icon: const Icon(Icons.replay_rounded), label: const Text('Replay line')),
+                IconButton(tooltip: 'Next lyric', onPressed: () => redraw(() =>
+                  selected = math.min(lines.length - 1, selected + 1)),
+                  icon: const Icon(Icons.skip_next_rounded)),
+              ]),
+              Slider(value: (lines[selected]['time'] as num).toDouble()
+                .clamp(0.0, math.max(0.001, durationSeconds)).toDouble(),
+                min: 0, max: math.max(0.001, durationSeconds),
+                onChanged: (value) => redraw(() => lines[selected]['time'] = value),
+                onChangeEnd: (_) => persistLyrics()),
               Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
                 for (final adjustment in [-0.10, -0.01, 0.01, 0.10])
                   TextButton(onPressed: () {
                     redraw(() => lines[selected]['time'] =
                       math.max(0.0, (lines[selected]['time'] as num).toDouble() + adjustment));
-                    saveLibrary();
+                    persistLyrics();
                   }, child: Text('${adjustment > 0 ? '+' : ''}${adjustment.toStringAsFixed(2)}s')),
               ]),
               Row(children: [
                 TextButton.icon(onPressed: () {
                   redraw(() => lines[selected]['time'] = positionSeconds);
-                  saveLibrary();
+                  persistLyrics();
                 }, icon: const Icon(Icons.my_location_rounded), label: const Text('Set to now')),
                 const Spacer(),
                 TextButton(onPressed: () {
                   redraw(() => lines.sort((a, b) =>
                     (a['time'] as num).compareTo(b['time'] as num)));
                   selected = 0;
-                  saveLibrary();
+                  persistLyrics();
                 }, child: const Text('Sort by time')),
               ]),
             ],
@@ -3257,6 +3310,8 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700,
                   color: GoogleLetterPalette.creamText, fontSize: 15))),
+          if (currentIndex >= 0 && currentIndex < files.length)
+            syncedLyricsPreview(files[currentIndex]),
           GestureDetector(behavior: HitTestBehavior.opaque,
             onTap: showOutputPicker,
             child: AnimatedSwitcher(duration: const Duration(milliseconds: 360),
@@ -3339,8 +3394,6 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             TextButton.icon(onPressed: showEqualizer, icon: const Icon(Icons.equalizer_rounded),
               label: const Text('EQ')),
           ]),
-          if (currentIndex >= 0 && currentIndex < files.length)
-            syncedLyricsPreview(files[currentIndex]),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],
