@@ -125,6 +125,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
   final originalNames = <String, String>{};
   final trackMetadata = <String, Map<String, String>>{};
   final embeddedArt = <String, Uint8List?>{};
+  final syncedLyrics = <String, List<Map<String, dynamic>>>{};
   final localThumbnailBytes = <String, Uint8List>{};
   final eqGains = List<double>.filled(10, 0);
   final customEqPresets = <String, List<double>>{};
@@ -458,6 +459,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       'shuffle': shuffle, 'repeat': repeat, 'speed': playbackSpeed,
       'globalDSP': globalDSP, 'songDSP': songDSP, 'linkedPitchTempo': linkedPitchTempo,
       'trackMetadata': trackMetadata,
+      'syncedLyrics': syncedLyrics,
       'pitchCents': pitchCents, 'pitchSemitones': pitchSemitones,
       'originalNames': originalNames.map((path, name) =>
           MapEntry(manifestTrackKey(path), name)),
@@ -667,6 +669,16 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             (decoded['trackMetadata'] as Map).forEach((key, value) {
               if (key is String && value is Map) {
                 trackMetadata[key] = value.map((k, v) => MapEntry(k.toString(), v.toString()));
+              }
+            });
+          }
+          if (decoded['syncedLyrics'] is Map) {
+            (decoded['syncedLyrics'] as Map).forEach((key, value) {
+              if (key is String && value is List) {
+                syncedLyrics[key] = value.whereType<Map>().map((line) => <String, dynamic>{
+                  'text': (line['text'] ?? '').toString(),
+                  'time': (line['time'] is num ? (line['time'] as num).toDouble() : 0.0),
+                }).toList();
               }
             });
           }
@@ -1516,6 +1528,119 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       SnackBar(content: Text('"$name" removed from library')));
   }
 
+  void showSyncedLyrics(String path) {
+    final key = manifestTrackKey(path);
+    final lines = syncedLyrics.putIfAbsent(key, () => <Map<String, dynamic>>[]);
+    final paste = TextEditingController();
+    var selected = 0;
+    showAuraDialog<void>(context: context, builder: (dialog) =>
+      StatefulBuilder(builder: (dialog, redraw) {
+        final active = lines.isEmpty ? -1 : lines.lastIndexWhere(
+          (line) => (line['time'] as num).toDouble() <= positionSeconds);
+        return Dialog(child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(dialog).height * 0.8),
+          child: Padding(padding: const EdgeInsets.all(16), child: Column(
+            mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              const Expanded(child: Text('Synced lyrics', style:
+                TextStyle(fontSize: 21, fontWeight: FontWeight.bold))),
+              IconButton(tooltip: 'Close lyrics', onPressed: () => Navigator.pop(dialog),
+                icon: const Icon(Icons.close_rounded)),
+            ]),
+            const Text('Paste lyrics one line at a time. Tap Sync at the moment each line starts. Select a line to fine-tune its timing.'),
+            TextField(controller: paste, minLines: 2, maxLines: 4,
+              decoration: const InputDecoration(hintText: 'Paste lyrics here')),
+            Row(children: [
+              TextButton(onPressed: () {
+                final next = paste.text.split(RegExp(r'\r?\n'))
+                  .map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+                if (next.isEmpty) return;
+                redraw(() {
+                  lines..clear()..addAll(next.map((line) =>
+                    <String, dynamic>{'text': line, 'time': 0.0}));
+                  selected = 0;
+                });
+                saveLibrary();
+              }, child: const Text('Use pasted lyrics')),
+              const Spacer(),
+              Text(clock(positionSeconds)),
+            ]),
+            Flexible(child: ListView.builder(
+              shrinkWrap: true, itemCount: lines.length,
+              itemBuilder: (_, i) => ListTile(
+                dense: true, selected: i == selected,
+                selectedTileColor: GoogleLetterPalette.yellow.withValues(alpha: 0.2),
+                title: Text(lines[i]['text'] as String,
+                  style: TextStyle(fontWeight: i == active ? FontWeight.w900 : FontWeight.normal)),
+                subtitle: Text(clock((lines[i]['time'] as num).toDouble())),
+                onTap: () => redraw(() => selected = i),
+                trailing: IconButton(tooltip: 'Sync this line to playback',
+                  icon: const Icon(Icons.timer_rounded),
+                  onPressed: () {
+                    redraw(() {
+                      lines[i]['time'] = positionSeconds;
+                      selected = (i + 1).clamp(0, lines.length - 1);
+                    });
+                    saveLibrary();
+                  }),
+              ))),
+            if (lines.isNotEmpty) ...[
+              Text('Fine tune: ${lines[selected]['text']}',
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                for (final adjustment in [-0.10, -0.01, 0.01, 0.10])
+                  TextButton(onPressed: () {
+                    redraw(() => lines[selected]['time'] =
+                      math.max(0.0, (lines[selected]['time'] as num).toDouble() + adjustment));
+                    saveLibrary();
+                  }, child: Text('${adjustment > 0 ? '+' : ''}${adjustment.toStringAsFixed(2)}s')),
+              ]),
+              Row(children: [
+                TextButton.icon(onPressed: () {
+                  redraw(() => lines[selected]['time'] = positionSeconds);
+                  saveLibrary();
+                }, icon: const Icon(Icons.my_location_rounded), label: const Text('Set to now')),
+                const Spacer(),
+                TextButton(onPressed: () {
+                  redraw(() => lines.sort((a, b) =>
+                    (a['time'] as num).compareTo(b['time'] as num)));
+                  selected = 0;
+                  saveLibrary();
+                }, child: const Text('Sort by time')),
+              ]),
+            ],
+          ]))));
+      }));
+  }
+
+  Widget syncedLyricsPreview(String path) {
+    final lines = syncedLyrics[manifestTrackKey(path)] ?? const <Map<String, dynamic>>[];
+    if (lines.isEmpty) return TextButton.icon(
+      onPressed: () => showSyncedLyrics(path),
+      icon: const Icon(Icons.lyrics_outlined), label: const Text('Add synced lyrics'));
+    final sorted = [...lines]..sort((a, b) =>
+      (a['time'] as num).compareTo(b['time'] as num));
+    final active = sorted.lastIndexWhere((line) =>
+      (line['time'] as num).toDouble() <= positionSeconds);
+    return Column(children: [
+      Row(children: [
+        const Expanded(child: Text('Lyrics', style:
+          TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
+        TextButton.icon(onPressed: () => showSyncedLyrics(path),
+          icon: const Icon(Icons.edit_rounded), label: const Text('Sync / Edit')),
+      ]),
+      for (var i = math.max(0, active - 1);
+           i < math.min(sorted.length, math.max(0, active - 1) + 4); i++)
+        InkWell(onTap: () => seekTo((sorted[i]['time'] as num).toDouble()),
+          child: Padding(padding: const EdgeInsets.symmetric(vertical: 9),
+            child: Text(sorted[i]['text'] as String,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: i == active ? 23 : 17,
+                fontWeight: i == active ? FontWeight.w900 : FontWeight.w500,
+                color: i == active ? GoogleLetterPalette.red : GoogleLetterPalette.creamText)))),
+    ]);
+  }
+
   void trackMenu(String path) {
     showBlurredActionSheet((sheet) => Padding(
         padding: const EdgeInsets.fromLTRB(15, 15, 15, 22),
@@ -1539,6 +1664,10 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
               icon: Icons.edit_rounded,
               accent: GoogleLetterPalette.blue,
               onTap: () { Navigator.pop(sheet); _renameTrack(path); }),
+            _settingsOption(label: 'Synced Lyrics',
+              icon: Icons.lyrics_outlined,
+              accent: GoogleLetterPalette.blue,
+              onTap: () { Navigator.pop(sheet); showSyncedLyrics(path); }),
             _settingsOption(label: 'Remove from Library',
               icon: Icons.delete_outline_rounded,
               accent: GoogleLetterPalette.red,
@@ -3210,6 +3339,8 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
             TextButton.icon(onPressed: showEqualizer, icon: const Icon(Icons.equalizer_rounded),
               label: const Text('EQ')),
           ]),
+          if (currentIndex >= 0 && currentIndex < files.length)
+            syncedLyricsPreview(files[currentIndex]),
           if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 22),
         ],
