@@ -1666,6 +1666,14 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       }));
   }
 
+  int activeLyricIndex(List<Map<String, dynamic>> lines, double seconds) {
+    var result = -1;
+    for (var i = 0; i < lines.length; i++) {
+      if ((lines[i]['time'] as num).toDouble() <= seconds) result = i;
+    }
+    return result;
+  }
+
   Widget syncedLyricsPreview(String path) {
     final lines = syncedLyrics[manifestTrackKey(path)] ?? const <Map<String, dynamic>>[];
     if (lines.isEmpty) return TextButton.icon(
@@ -1673,8 +1681,7 @@ class _MusicPageState extends State<MusicPage> with TickerProviderStateMixin, Wi
       icon: const Icon(Icons.lyrics_outlined), label: const Text('Add synced lyrics'));
     final sorted = [...lines]..sort((a, b) =>
       (a['time'] as num).compareTo(b['time'] as num));
-    final active = sorted.lastIndexWhere((line) =>
-      (line['time'] as num).toDouble() <= positionSeconds);
+    final active = activeLyricIndex(sorted, positionSeconds);
     return Column(children: [
       Row(children: [
         const Expanded(child: Text('Lyrics', style:

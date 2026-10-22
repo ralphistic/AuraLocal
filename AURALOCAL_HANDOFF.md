@@ -263,3 +263,9 @@ Repository: ralphistic/AuraLocal, main. iOS unsigned IPA built via .github/workf
 - 2026-10-22 14:08 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
 
 - 2026-10-22 15:08 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
+
+## Lyrics verification gate (2026-10-22)
+Synced lyrics now have a dedicated storage path and a playback-time line selector. The iOS workflow runs test/synced_lyrics_test.dart before building the IPA; an incorrect line-boundary selection must fail CI. Device persistence and visual behavior still require device verification; CI success alone is not proof of iPhone correctness.
+
+
+- 2026-10-22 17:35 UTC: Code changed in lib/main.dart. Preserve all Must preserve features. Confirm behavior and iPhone testing; review diff for regressions.
